@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MOF dissolution kinetics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#EEF2F4; --surface:#FFFFFF; --ink:#1A242C; --muted:#5A6873; --rule:#D2DAE0; --grid:#E6EBEE;
+  --accent:#9A4E14; --accent-soft:#F6E7D8; --warn-bg:#FBF1DF; --warn-ink:#6E4708;
+  --s1:#2563A8; --s2:#2C8558; --s3:#8446B8; --s4:#B4462A; --s5:#0E7186; --s6:#8A7A12; --s7:#B83A7E; --s8:#4A5866;
+  color-scheme:light;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#151B1F; --surface:#1C2429; --ink:#E3E9ED; --muted:#98A6B0; --rule:#33404A; --grid:#262F36;
+    --accent:#E39352; --accent-soft:#3A2A1C; --warn-bg:#33291A; --warn-ink:#F0CE93;
+    --s1:#6EA6E6; --s2:#5CC28C; --s3:#B78AE6; --s4:#EE8A6C; --s5:#4CC1D6; --s6:#D8C55A; --s7:#EB86BC; --s8:#AAB6C0;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#151B1F; --surface:#1C2429; --ink:#E3E9ED; --muted:#98A6B0; --rule:#33404A; --grid:#262F36;
+  --accent:#E39352; --accent-soft:#3A2A1C; --warn-bg:#33291A; --warn-ink:#F0CE93;
+  --s1:#6EA6E6; --s2:#5CC28C; --s3:#B78AE6; --s4:#EE8A6C; --s5:#4CC1D6; --s6:#D8C55A; --s7:#EB86BC; --s8:#AAB6C0;
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1280px;margin:0 auto;padding:28px 24px 48px}
+header{display:grid;grid-template-columns:1fr auto;gap:8px 24px;align-items:end;margin-bottom:22px;border-bottom:2px solid var(--accent);padding-bottom:14px}
+h1{font-size:28px;line-height:1.15;font-weight:600;letter-spacing:-.01em;margin:0}
+.lede{grid-column:1/-1;margin:0;color:var(--muted);max-width:70ch}
+.grid{display:grid;grid-template-columns:minmax(300px,380px) minmax(0,1fr);gap:24px;align-items:start}
+@media (max-width:920px){.grid{grid-template-columns:minmax(0,1fr)}}
+.grid>section{min-width:0}
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:18px}
+.panel+.panel{margin-top:16px}
+h2{font-size:16px;font-weight:600;margin:0}
+.lab{display:block;font-weight:600;margin-bottom:8px}
+textarea{width:100%;min-height:220px;resize:vertical;font:13px/1.45 "IBM Plex Sans",system-ui,sans-serif;font-variant-numeric:tabular-nums;color:var(--ink);background:var(--bg);border:1px solid var(--rule);border-radius:4px;padding:10px;tab-size:16;white-space:pre;overflow:auto}
+.hint{color:var(--muted);font-size:13px;margin:8px 0 0}
+.row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+button{font:inherit;font-size:14px;color:var(--ink);background:var(--surface);border:1px solid var(--rule);border-radius:4px;padding:6px 12px;cursor:pointer}
+button:hover{border-color:var(--muted)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+fieldset{border:0;padding:0;margin:18px 0 0}
+legend{font-weight:600;padding:0;margin-bottom:8px}
+.opt{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;padding:8px 10px;border:1px solid var(--rule);border-radius:4px;cursor:pointer;margin-top:6px}
+.opt:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.opt input{margin:4px 0 0;accent-color:var(--accent)}
+.opt small{grid-column:2;color:var(--muted);font-size:13px;line-height:1.4}
+.formula{font-style:italic;letter-spacing:.01em}
+.check{display:flex;gap:10px;align-items:flex-start;margin-top:16px;font-size:14px;cursor:pointer}
+.check input{margin-top:4px;accent-color:var(--accent)}
+details{margin-top:18px;border-top:1px solid var(--rule);padding-top:12px}
+summary{cursor:pointer;font-weight:600}
+summary span{font-weight:400;color:var(--muted);margin-left:6px}
+.scroll{overflow-x:auto;max-height:340px;overflow-y:auto;margin-top:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+caption{text-align:left;font-weight:600;padding:10px 0 6px}
+th,td{padding:6px 10px;border-bottom:1px solid var(--rule);text-align:left;white-space:nowrap}
+th{font-weight:600;color:var(--muted);font-size:12.5px}
+td.n,th.n{text-align:right}
+td.first{text-align:left}
+tr.muted td{color:var(--muted)}
+.skip{color:var(--muted);font-style:italic}
+tr.sum td{border-top:2px solid var(--ink);font-weight:600}
+tr.sum2 td{color:var(--muted)}
+#condBar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px}
+#condBar:empty{display:none}
+.bar-label{color:var(--muted);font-size:14px;margin-right:4px}
+#condBar button[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+#warn:empty{display:none}
+#warn{background:var(--warn-bg);color:var(--warn-ink);border-radius:4px;padding:8px 14px;margin-bottom:14px;font-size:14px}
+#warn ul{margin:0;padding-left:18px}
+figure{margin:0}
+#plot{width:100%;height:auto;display:block}
+#plot text{font-family:inherit}
+#plot .grid{stroke:var(--grid);stroke-width:1}
+#plot .axis,#plot .tickmark{stroke:var(--muted);stroke-width:1}
+#plot .tick{fill:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+#plot .atitle{fill:var(--ink);font-size:13px}
+#plot .ref{stroke:var(--muted);stroke-dasharray:3 4;stroke-width:1}
+#plot .fit{fill:none}
+#plot .fit.rep{stroke-width:1.4;opacity:.55;stroke-dasharray:5 4}
+#plot .fit.mean{stroke-width:2.2}
+#plot .pt{stroke:var(--surface);stroke-width:1.5}
+#plot .pt.hollow{fill:var(--surface);stroke-width:1.6}
+#plot .err{stroke-width:1.4}
+#plot .mean{stroke:var(--surface);stroke-width:1.5}
+#legend{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;margin-top:8px;font-size:14px}
+.lg{display:inline-flex;align-items:center;gap:7px;padding:3px 9px}
+.lg[aria-pressed="false"]{color:var(--muted);text-decoration:line-through;opacity:.7}
+.lg.static{border:0;padding:3px 0}
+.lg-hint{color:var(--muted);font-size:13px;margin-left:auto}
+.sw{display:inline-block;width:10px;height:10px}
+.sw.dot{border-radius:50%}
+.tblhead{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:26px 0 4px}
+.tbl{overflow-x:auto}
+.note{color:var(--muted);font-size:13px;margin:10px 0 0;max-width:80ch}
+.labelbox{margin-top:10px;padding:10px 12px;border-left:3px solid var(--accent);background:var(--bg);border-radius:0 4px 4px 0}
+.sublab{margin:0 0 6px;font-size:13px;color:var(--muted)}
+.lbl{display:grid;grid-template-columns:64px 1fr;gap:10px;align-items:center;margin-top:6px;font-size:14px;font-variant-numeric:tabular-nums}
+.lbl input{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--rule);border-radius:4px;padding:5px 8px;min-width:0}
+.how{font-size:14px;max-width:80ch}
+.how ol{margin:8px 0 0;padding-left:20px;color:var(--muted)}
+.how li{margin-bottom:6px}
+#exportRow{margin:12px 0 0}
+.emptymsg{display:none;color:var(--muted);padding:40px 8px;text-align:center}
+#out.is-empty .emptymsg{display:block}
+#out.is-empty .has-data{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>MOF dissolution kinetics</h1>
+  <p class="lede">Paste a NanoDrop table. Supernatant samples are matched by replicate across time points and fitted to first-order dissolution.</p>
+</header>
+<main class="grid">
+  <section>
+    <div class="panel">
+      <label class="lab" for="raw">NanoDrop table</label>
+      <textarea id="raw" spellcheck="false" placeholder="Paste rows here, e.g. Bench t1 [5min] sup Nb_1    212    6.025"></textarea>
+      <p class="hint">Names need a time point like “t1 [5min]”, the fraction “sup” or “all”, and a replicate like “Nb_1”. Rows without a time point, such as blanks, are skipped.</p>
+      <div class="row"><button type="button" id="example">Load example</button><button type="button" id="clear">Clear</button></div>
+
+      <fieldset>
+        <legend>Nb_1, Nb_2, Nb_3 … are</legend>
+        <label class="opt"><input type="radio" name="mode" value="reps"><span>Replicates of one condition</span><small>Each is fitted, then averaged: mean ± SD across them.</small></label>
+        <label class="opt"><input type="radio" name="mode" value="samples"><span>Different samples</span><small>Each is fitted on its own. Repeat a sample name to add technical replicates; they give the error bars.</small></label>
+        <div id="labelBox" class="labelbox" hidden>
+          <p class="sublab">Sample names</p>
+          <div id="labels"></div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Signal to fit</legend>
+        <label class="opt"><input type="radio" name="signal" value="fracAll"><span>% dissolved, sup ÷ all</span><small>Each supernatant divided by the whole suspension of the same replicate at the same time.</small></label>
+        <label class="opt"><input type="radio" name="signal" value="fracT0"><span>% dissolved, sup ÷ t0</span><small>Each supernatant divided by that replicate’s t0 sample.</small></label>
+        <label class="opt"><input type="radio" name="signal" value="raw"><span>Raw absorbance of sup</span><small>No normalisation.</small></label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Model</legend>
+        <label class="opt"><input type="radio" name="model" value="origin"><span class="formula">y = y∞ (1 − e<sup>−kt</sup>)</span><small>First order, starts at zero. Assumes no dissolved signal before cysteine was added.</small></label>
+        <label class="opt"><input type="radio" name="model" value="offset"><span class="formula">y = y₀ + (y∞ − y₀)(1 − e<sup>−kt</sup>)</span><small>First order with a free start value. Needs more time points to be stable.</small></label>
+      </fieldset>
+
+      <label class="check"><input type="checkbox" id="showAll"><span>Show “all” samples as open circles (raw absorbance only)</span></label>
+
+      <details>
+        <summary>Recognised samples <span id="parsedCount"></span></summary>
+        <div class="scroll" id="parsed"></div>
+      </details>
+    </div>
+  </section>
+
+  <section id="out">
+    <div class="panel">
+      <p class="emptymsg">No supernatant samples found yet. Paste a NanoDrop table on the left, or load the example.</p>
+      <div class="has-data">
+        <div id="condBar"></div>
+        <div id="warn"></div>
+        <figure><svg id="plot" role="img" viewBox="0 0 720 440"></svg><figcaption id="legend"></figcaption></figure>
+        <div class="row" id="exportRow" hidden><button type="button" id="saveSvg">Save plot as SVG</button><button type="button" id="savePng">Save plot as PNG</button><button type="button" id="saveCsv">Save tables as CSV</button></div>
+        <div class="tblhead"><h2>Kinetic parameters</h2><button type="button" id="copyRes">Copy table</button></div>
+        <div class="tbl" id="results"></div>
+        <p class="note" id="resNote"></p>
+        <details class="how">
+          <summary>How k is calculated</summary>
+          <ol>
+            <li>For a trial value of k, the model y = y∞ (1 − e<sup>−kt</sup>) is linear in y∞, so the best plateau has an exact solution: y∞ = Σ g<sub>i</sub>y<sub>i</sub> / Σ g<sub>i</sub>², with g<sub>i</sub> = 1 − e<sup>−k t<sub>i</sub></sup>. With a free start value, y₀ and y∞ come from ordinary linear regression of y on g.</li>
+            <li>The sum of squared residuals is computed for 600 values of k, spaced evenly on a log scale from 0.01 / t<sub>max</sub> to 30 / t<sub>min</sub>.</li>
+            <li>The best k from that scan is refined by golden-section search between its two neighbours.</li>
+            <li>The SE of k comes from the curvature of the fit: s² (JᵀJ)⁻¹, with J the derivatives of the model with respect to each parameter and s² = residual sum of squares / (points − parameters).</li>
+            <li>t½ = ln 2 / k. All points are weighted equally; the t = 0 point is not added as data, the model itself passes through zero.</li>
+          </ol>
+        </details>
+        <div class="tblhead"><h2>Matched values</h2><button type="button" id="copyData">Copy table</button></div>
+        <div class="tbl" id="data"></div>
+      </div>
+    </div>
+  </section>
+</main>
+</div>
+<script>
+// ---------- parsing ----------
+const LN2 = Math.log(2);
+function num(s){ if(s==null) return NaN; s=String(s).trim().replace(',', '.'); if(!/^-?\d*\.?\d+(e-?\d+)?$/i.test(s)) return NaN; return parseFloat(s); }
+
+function parseLine(raw){
+  let name=null, lam=NaN, abs=NaN;
+  if(raw.includes('\t')){
+    const cells=raw.split('\t').map(c=>c.trim());
+    let ni=-1;
+    for(let i=0;i<cells.length;i++){ if(/[A-Za-zÄÖÜäöü]/.test(cells[i])){ ni=i; break; } }
+    if(ni<0) return null;
+    name=cells[ni];
+    const nums=cells.slice(ni+1).map(num).filter(v=>!isNaN(v));
+    if(nums.length>=1) abs=nums[nums.length-1];
+    if(nums.length>=2) lam=nums[nums.length-2];
+  } else {
+    const m=raw.match(/^\s*(?:\d+\s+)?(.*?[A-Za-z\]].*?)\s+(\d+(?:[.,]\d+)?)\s+(-?\d+(?:[.,]\d+)?)\s*$/);
+    if(m){ name=m[1].trim(); lam=num(m[2]); abs=num(m[3]); }
+    else { const m2=raw.match(/^\s*(?:\d+\s+)?(.*?)\s*$/); name=m2?m2[1]:raw.trim(); }
+  }
+  return {name, lam, abs};
+}
+
+function parseName(name){
+  const tM = name.match(/(?:^|[\s_\-])t\s?(\d+)(?=$|[\s_\-\[(])/i);
+  if(!tM) return null;
+  const tIdx = parseInt(tM[1],10);
+  let time = NaN, timeFromIndex=false;
+  let mm = name.match(/[\[(]\s*(\d+(?:[.,]\d+)?)\s*(min|m|h|s|sec)?\s*[\])]/i) || name.match(/(\d+(?:[.,]\d+)?)\s*(min|h|sec|s)\b/i);
+  if(mm){ time=num(mm[1]); const u=(mm[2]||'min').toLowerCase(); if(u==='h') time*=60; else if(u==='s'||u==='sec') time/=60; }
+  else { time=tIdx; timeFromIndex=true; }
+  const cond = name.slice(0, tM.index).trim() || 'Sample';
+  const rest = name.slice(tM.index + tM[0].length);
+  let role='unlabelled', typo=false;
+  const sm = rest.match(/(?:^|[\s_\-\]])(sup|sub|supernatant|überstand|ueberstand)(?=$|[\s_\-])/i);
+  if(sm){ role='sup'; if(sm[1].toLowerCase()==='sub') typo=true; }
+  else if(/(?:^|[\s_\-\]])(all|total|tot)(?=$|[\s_\-])/i.test(rest)) role='all';
+  let rep='Rep_1';
+  const rm = rest.match(/([A-Za-z]+)[ _\-]?(\d+)\s*$/);
+  if(rm) rep = rm[1]+'_'+rm[2];
+  return {cond, tIdx, time, timeFromIndex, role, typo, rep};
+}
+
+function parseText(text){
+  const rows=[];
+  text.split(/\r?\n/).forEach((raw, li)=>{
+    if(!raw.trim()) return;
+    const p=parseLine(raw); if(!p || !p.name) return;
+    const r={line:li+1, name:p.name, lam:p.lam, abs:p.abs};
+    const n=parseName(p.name);
+    if(!n){ r.status='skip'; r.note= /(^|\s)name(\s|$)|^#$/i.test(p.name)?'header':'no time point'; rows.push(r); return; }
+    Object.assign(r,n);
+    if(isNaN(r.abs)){ r.status='skip'; r.note='no absorbance value'; }
+    else r.status='ok';
+    rows.push(r);
+  });
+  return rows;
+}
+
+// ---------- dataset ----------
+// Repeated rows with the same name are technical replicates: they are averaged.
+function stats(a){ if(!a||!a.length) return null; const m=a.reduce((x,y)=>x+y,0)/a.length; const s=a.length>1? Math.sqrt(a.reduce((x,y)=>x+(y-m)**2,0)/(a.length-1)) : NaN; return {m,s,n:a.length}; }
+function buildDataset(rows, signal){
+  const warnings=[];
+  const typos=rows.filter(r=>r.status==='ok'&&r.typo).length;
+  if(typos) warnings.push(`${typos} sample${typos>1?'s':''} labelled “sub” ${typos>1?'were':'was'} read as supernatant (“sup”).`);
+  if(rows.some(r=>r.status==='ok'&&r.timeFromIndex)) warnings.push('Some names have no time in brackets, e.g. “[5min]”. The time-point index was used as minutes instead.');
+  const cmap=new Map(); let maxTech=1;
+  for(const r of rows){
+    if(r.status!=='ok') continue;
+    if(!cmap.has(r.cond)) cmap.set(r.cond,new Map());
+    const rm=cmap.get(r.cond);
+    if(!rm.has(r.rep)) rm.set(r.rep,new Map());
+    const tm=rm.get(r.rep);
+    if(!tm.has(r.time)) tm.set(r.time,{});
+    const slot=tm.get(r.time);
+    const key = r.role==='sup'?'sup':(r.role==='all'?'all':'unl');
+    (slot[key]=slot[key]||[]).push(r.abs);
+    maxTech=Math.max(maxTech,slot[key].length);
+  }
+  const conds=[];
+  for(const [cname,rm] of cmap){
+    const reps=[];
+    for(const [rname,tm] of rm){
+      const times=[...tm.keys()].sort((a,b)=>a-b);
+      const totalOf = t => { const s=tm.get(t); return stats(s.all&&s.all.length? s.all : s.unl); };
+      const t0 = times.find(t=>totalOf(t)!=null);
+      const points=[];
+      for(const t of times){
+        const sup=stats(tm.get(t).sup);
+        if(!sup) continue;
+        let den=null, y, sdT;
+        const rel=(st)=> st.n>1? st.s/st.m : 0;
+        if(signal==='raw'){ y=sup.m; sdT=sup.s; }
+        else {
+          if(signal==='fracAll'){ den=totalOf(t); if(!den){ warnings.push(`${cname} ${rname}: no “all” sample at ${fmtT(t)} min, so this point was left out.`); continue; } }
+          else { if(t0==null){ warnings.push(`${cname} ${rname}: no t0 total found, so this sample was left out.`); break; } den=totalOf(t0); }
+          y=100*sup.m/den.m;
+          sdT = (sup.n>1||den.n>1)? Math.abs(y)*Math.sqrt(rel(sup)**2+rel(den)**2) : NaN;
+        }
+        points.push({t, y, sdT, nT:sup.n, sup:sup.m, den:den?den.m:null});
+      }
+      const allPts = times.filter(t=>totalOf(t)!=null).map(t=>({t, y: totalOf(t).m}));
+      reps.push({name:rname, points, allPts});
+    }
+    reps.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+    conds.push({name:cname, reps});
+  }
+  return {conds, warnings:[...new Set(warnings)], maxTech};
+}
+
+function meanCurve(reps){
+  const m=new Map();
+  for(const r of reps) for(const p of r.points){ if(!m.has(p.t)) m.set(p.t,[]); m.get(p.t).push(p.y); }
+  return [...m.keys()].sort((a,b)=>a-b).map(t=>{ const v=m.get(t); const n=v.length; const mean=v.reduce((a,b)=>a+b,0)/n; const sd = n>1? Math.sqrt(v.reduce((a,b)=>a+(b-mean)**2,0)/(n-1)) : NaN; return {t,y:mean,sd,n}; });
+}
+
+// ---------- fitting ----------
+function invert(M){
+  const n=M.length; const A=M.map((r,i)=>[...r, ...Array.from({length:n},(_,j)=>i===j?1:0)]);
+  for(let c=0;c<n;c++){
+    let piv=c; for(let r=c+1;r<n;r++) if(Math.abs(A[r][c])>Math.abs(A[piv][c])) piv=r;
+    if(Math.abs(A[piv][c])<1e-300) return null;
+    [A[c],A[piv]]=[A[piv],A[c]];
+    const d=A[c][c]; for(let j=0;j<2*n;j++) A[c][j]/=d;
+    for(let r=0;r<n;r++) if(r!==c){ const f=A[r][c]; for(let j=0;j<2*n;j++) A[r][j]-=f*A[c][j]; }
+  }
+  return A.map(r=>r.slice(n));
+}
+
+// model 'origin': y = yinf*(1-exp(-k t));  model 'offset': y = y0 + (yinf-y0)*(1-exp(-k t))
+function fitFirstOrder(pts, model){
+  const ts=pts.map(p=>p.t), ys=pts.map(p=>p.y);
+  const n=ts.length, withOffset = model==='offset', p = withOffset?3:2;
+  if(n<p) return {ok:false, reason:`needs at least ${p} time points`};
+  const tPos=ts.filter(t=>t>0); if(!tPos.length) return {ok:false, reason:'no time points after 0 min'};
+  const tmin=Math.min(...tPos), tmax=Math.max(...ts);
+  const lo=Math.log(0.01/tmax), hi=Math.log(30/tmin);
+  const solve=x=>{
+    const k=Math.exp(x); const g=ts.map(t=>1-Math.exp(-k*t));
+    let a,b=0;
+    if(!withOffset){ let sgg=0,sgy=0; for(let i=0;i<n;i++){ sgg+=g[i]*g[i]; sgy+=g[i]*ys[i]; } a = sgg>0? sgy/sgg : 0; }
+    else { let sg=0,sgg=0,sy=0,sgy=0; for(let i=0;i<n;i++){ sg+=g[i]; sgg+=g[i]*g[i]; sy+=ys[i]; sgy+=g[i]*ys[i]; } const det=n*sgg-sg*sg; if(Math.abs(det)<1e-14) return {k,a:0,b:0,sse:Infinity}; a=(n*sgy-sg*sy)/det; b=(sy-a*sg)/n; }
+    let sse=0; for(let i=0;i<n;i++) sse+=(ys[i]-b-a*g[i])**2;
+    return {k,a,b,sse};
+  };
+  const N=600; let best=null, bj=0;
+  for(let j=0;j<N;j++){ const x=lo+(hi-lo)*j/(N-1); const r=solve(x); if(!best||r.sse<best.sse){best=r;bj=j;} }
+  let xa=lo+(hi-lo)*Math.max(0,bj-1)/(N-1), xb=lo+(hi-lo)*Math.min(N-1,bj+1)/(N-1);
+  const gr=(Math.sqrt(5)-1)/2;
+  let x1=xb-gr*(xb-xa), x2=xa+gr*(xb-xa), f1=solve(x1).sse, f2=solve(x2).sse;
+  for(let it=0;it<80;it++){ if(f1<f2){ xb=x2; x2=x1; f2=f1; x1=xb-gr*(xb-xa); f1=solve(x1).sse; } else { xa=x1; x1=x2; f1=f2; x2=xa+gr*(xb-xa); f2=solve(x2).sse; } }
+  const fin=solve((xa+xb)/2); if(fin.sse<best.sse) best=fin;
+  const {k,a,b,sse}=best;
+  const ybar=ys.reduce((s,v)=>s+v,0)/n; const sst=ys.reduce((s,v)=>s+(v-ybar)**2,0);
+  const R2 = sst>0? 1-sse/sst : NaN;
+  const dof=n-p; let seK=NaN, seYinf=NaN;
+  if(dof>0){
+    const J=ts.map(t=>{ const e=Math.exp(-k*t); return withOffset? [1-e, 1, a*t*e] : [1-e, a*t*e]; });
+    const JTJ=Array.from({length:p},(_,i)=>Array.from({length:p},(_,j)=>J.reduce((s,row)=>s+row[i]*row[j],0)));
+    const inv=invert(JTJ);
+    if(inv){ const s2=sse/dof; seK=Math.sqrt(Math.max(0,s2*inv[p-1][p-1]));
+      if(!withOffset) seYinf=Math.sqrt(Math.max(0,s2*inv[0][0]));
+      else { const v=inv[0][0]+inv[1][1]+2*inv[0][1]; seYinf=Math.sqrt(Math.max(0,s2*v)); } }
+  }
+  const edge = bj===N-1? 'fast' : (bj===0? 'slow' : null);
+  return {ok:true, model, k, y0:b, yinf:b+a, amp:a, sse, R2, seK, seYinf, thalf:LN2/k, v0:k*a, n, dof, edge,
+          f:t=> b + a*(1-Math.exp(-k*t))};
+}
+
+function fmtT(v){ return Number.isInteger(v)? String(v) : fmtNum(v,2); }
+function mean(v){ return v.reduce((a,b)=>a+b,0)/v.length; }
+function sd(v){ if(v.length<2) return NaN; const m=mean(v); return Math.sqrt(v.reduce((a,b)=>a+(b-m)**2,0)/(v.length-1)); }
+function fmtNum(v, d){ if(v==null||!isFinite(v)) return '–'; if(d==null){ const a=Math.abs(v); d = a===0?0 : a>=100?1 : a>=10?2 : a>=1?3 : 4; } return v.toFixed(d); }
+// ---------- UI ----------
+const $=id=>document.getElementById(id);
+const KEY='mof-dissolution-kinetics.v2';
+const EXAMPLE=`#\tName\tλ 1\tAbs. 1
+1\tBlank 1\t\t
+2\tBench t0 [0min] Nb_1\t216\t9.946
+3\tBench t0 [0min] Nb_2\t214\t10.55
+4\tBench t0 [0min] Nb_3\t214\t13.54
+5\tBench t1 [5min] sup Nb_1\t212\t6.025
+6\tBench t1 [5min] sup Nb_2\t211\t6.721
+7\tBench t1 [5min] sup Nb_3\t211\t7.828
+8\tBench t1 [5min] all Nb_1\t212\t10.51
+9\tBench t1 [5min] all Nb_2\t211\t10.63
+10\tBench t1 [5min] all Nb_3\t212\t12.79
+11\tBench t2 [10min] sup Nb_1\t211\t8.007
+12\tBench t2 [10min] sup Nb_2\t210\t9.274
+13\tBench t2 [10min] sup Nb_3\t211\t10.40
+14\tBench t2 [10min] all Nb_1\t211\t10.09
+15\tBench t2 [10min] all Nb_2\t210\t10.44
+16\tBench t2 [10min] all Nb_3\t211\t12.72
+17\tBench t3 [15min] sub Nb_1\t210\t9.892
+18\tBench t3 [15min] sub Nb_2\t210\t10.45
+19\tBench t3 [15min] sub Nb_3\t210\t12.22
+20\tBench t3 [15min] all Nb_1\t211\t10.01
+21\tBench t3 [15min] all Nb_2\t210\t10.71
+22\tBench t3 [15min] all Nb_3\t210\t13.47
+23\tBench t4 [20min] sub Nb_1\t211\t10.05
+24\tBench t4 [20min] sub Nb_2\t210\t10.90
+25\tBench t4 [20min] sub Nb_3\t211\t13.14
+26\tBench t4 [20min] all Nb_1\t210\t10.62
+27\tBench t4 [20min] all Nb_2\t210\t11.05
+28\tBench t4 [20min] all Nb_3\t210\t12.82`;
+
+const state={signal:'fracAll', model:'origin', showAll:false, cond:null, hidden:new Set(), mode:'reps', labels:{}};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const color=i=>`var(--s${(i%8)+1})`;
+const isLocal = location.protocol==='file:' || ['localhost','127.0.0.1','::1'].includes(location.hostname);
+let lastTables={results:'',data:''};
+
+function load(){
+  try{ const s=JSON.parse(localStorage.getItem(KEY)||'null');
+    if(s){ $('raw').value=s.raw||''; for(const k of ['signal','model','mode']) if(s[k]) state[k]=s[k]; state.showAll=!!s.showAll; state.labels=s.labels||{}; } }catch(e){}
+  if(!$('raw').value.trim()) $('raw').value=EXAMPLE;
+  document.querySelector(`input[name=signal][value=${state.signal}]`).checked=true;
+  document.querySelector(`input[name=model][value=${state.model}]`).checked=true;
+  document.querySelector(`input[name=mode][value=${state.mode}]`).checked=true;
+  $('showAll').checked=state.showAll;
+}
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify({raw:$('raw').value, signal:state.signal, model:state.model, mode:state.mode, showAll:state.showAll, labels:state.labels})); }catch(e){} }
+
+const isPct=()=>state.signal!=='raw';
+function yLabel(rows){
+  if(state.signal==='fracAll') return 'Dissolved (%, sup ÷ all at the same time)';
+  if(state.signal==='fracT0') return 'Dissolved (%, sup ÷ total at t0)';
+  const l=rows.filter(r=>r.status==='ok'&&r.role==='sup'&&isFinite(r.lam)).map(r=>r.lam);
+  return l.length? `Supernatant absorbance at peak (${Math.min(...l)}–${Math.max(...l)} nm)` : 'Supernatant absorbance';
+}
+const fy=v=>isPct()?fmtNum(v,1)+' %':fmtNum(v,3);
+const fsd=v=>isPct()?fmtNum(v,1):fmtNum(v,3);
+
+function render(){
+  save();
+  const rows=parseText($('raw').value);
+  renderParsed(rows);
+  const ds=buildDataset(rows,state.signal);
+  renderLabels(ds);
+  const hasData = ds.conds.some(c=>c.reps.some(r=>r.points.length));
+  $('out').classList.toggle('is-empty',!hasData);
+  if(!hasData) return;
+  if(state.mode==='samples') renderSamples(ds, rows); else renderReps(ds, rows);
+}
+
+// ----- mode: replicates of one condition -----
+function renderReps(ds, rows){
+  const names=ds.conds.map(c=>c.name);
+  if(!state.cond || (state.cond!=='__all__' && !names.includes(state.cond))) state.cond=names[0];
+  if(state.cond==='__all__' && names.length<2) state.cond=names[0];
+  const analysed=ds.conds.map(c=>{
+    const reps=c.reps.map(r=>({...r, key:c.name+'|'+r.name, hidden:state.hidden.has(c.name+'|'+r.name), fit:fitFirstOrder(r.points,state.model)}));
+    const vis=reps.filter(r=>!r.hidden&&r.points.length);
+    const mc=meanCurve(vis);
+    const mfit=mc.length?fitFirstOrder(mc,state.model):{ok:false,reason:'no data'};
+    return {name:c.name, reps, vis, mc, mfit};
+  });
+  const overlay=state.cond==='__all__';
+  const view= overlay? analysed : analysed.filter(a=>a.name===state.cond);
+  renderCondBar(names);
+  const w=[...ds.warnings]; if(ds.maxTech>1) w.push('Repeated sample names were averaged as technical replicates before averaging across Nb_1, Nb_2, ….');
+  renderWarnings(w);
+
+  const layers=[], curves=[], hollow=[];
+  if(!overlay){
+    const a=view[0], n=a.reps.length;
+    a.reps.forEach((r,i)=>{ if(r.hidden) return;
+      if(r.fit.ok) curves.push({f:r.fit.f, color:color(i), cls:'fit rep'});
+      layers.push({color:color(i), shape:'dot', dx:(i-(n-1)/2)*5, pts:r.points.map(p=>({t:p.t,y:p.y,title:`${r.name}, ${fmtT(p.t)} min: ${fy(p.y)}`+(p.den!=null?` (A ${fmtNum(p.sup,3)} ÷ ${fmtNum(p.den,3)})`:'')+(p.nT>1?`, mean of ${p.nT} measurements`:'')}))});
+      if(state.showAll&&state.signal==='raw') hollow.push({color:color(i), dx:(i-(n-1)/2)*5, pts:r.allPts.map(p=>({t:p.t,y:p.y,title:`${r.name}, all, ${fmtT(p.t)} min: ${fmtNum(p.y,3)}`}))});
+    });
+    if(a.vis.length>1){
+      if(a.mfit.ok) curves.push({f:a.mfit.f, color:'var(--ink)', cls:'fit mean'});
+      layers.push({color:'var(--ink)', shape:'square', dx:0, pts:a.mc.map(p=>({t:p.t,y:p.y,err:p.sd,title:`Mean, ${fmtT(p.t)} min: ${fy(p.y)} ± ${fsd(p.sd)} (n = ${p.n})`}))});
+    }
+  } else {
+    view.forEach((a,i)=>{
+      if(a.mfit.ok) curves.push({f:a.mfit.f, color:color(i), cls:'fit mean'});
+      layers.push({color:color(i), shape:'square', dx:0, pts:a.mc.map(p=>({t:p.t,y:p.y,err:p.sd,title:`${a.name}, ${fmtT(p.t)} min: ${fy(p.y)} ± ${fsd(p.sd)} (n = ${p.n})`}))});
+    });
+  }
+  drawPlot(layers, curves, hollow, rows);
+
+  // legend
+  let h='';
+  if(!overlay){
+    const a=view[0];
+    h+=a.reps.map((r,i)=>legendBtn(r.key, r.name, color(i), !r.hidden, 'dot')).join('');
+    if(a.vis.length>1) h+=`<span class="lg static"><span class="sw sq" style="background:var(--ink)"></span>Mean ± SD and fit</span>`;
+    h+=`<span class="lg-hint">Click a replicate to leave it out of the mean.</span>`;
+  } else h+=view.map((a,i)=>`<span class="lg static"><span class="sw sq" style="background:${color(i)}"></span>${esc(a.name)} (n = ${a.vis.length})</span>`).join('');
+  $('legend').innerHTML=h;
+
+  // results
+  const pct=isPct(), uy=pct?'%':'A', dy=pct?1:3, dv=pct?2:3;
+  const head=['Replicate','Points','k (min⁻¹)','SE of k','t½ (min)',`Plateau (${uy})`,`Initial rate (${uy}/min)`,'R²'];
+  const notes=new Set(); const blocks=[];
+  for(const a of view){
+    const out=[];
+    for(const r of a.reps){
+      const f=r.fit, nm=r.name+(r.hidden?' (excluded)':'');
+      if(!f.ok){ out.push({cls:r.hidden?'muted':'', cells:[nm, r.points.length, f.reason,'','','','','']}); continue; }
+      if(f.edge) notes.add(f.edge); if(f.dof<=1) notes.add('dof');
+      out.push({cls:r.hidden?'muted':'', cells:[nm, f.n, fmtNum(f.k,3), fmtNum(f.seK,3), fmtNum(f.thalf,2), fmtNum(f.yinf,dy), fmtNum(f.v0,dv), fmtNum(f.R2,3)]});
+    }
+    const ok=a.reps.filter(r=>!r.hidden&&r.fit.ok).map(r=>r.fit);
+    if(ok.length>1){ const col=k=>ok.map(f=>f[k]);
+      out.push({cls:'sum', cells:[`Mean ± SD of fits (n = ${ok.length})`,'', pm(mean(col('k')),sd(col('k')),3),'', pm(mean(col('thalf')),sd(col('thalf')),2), pm(mean(col('yinf')),sd(col('yinf')),dy), pm(mean(col('v0')),sd(col('v0')),dv),'']}); }
+    if(a.mfit.ok && a.vis.length>1){ const f=a.mfit; out.push({cls:'sum2', cells:['Fit to mean curve', f.n, fmtNum(f.k,3), fmtNum(f.seK,3), fmtNum(f.thalf,2), fmtNum(f.yinf,dy), fmtNum(f.v0,dv), fmtNum(f.R2,3)]}); }
+    blocks.push({caption:names.length>1?a.name:null, head, rows:out});
+  }
+  writeTable('results', blocks);
+  writeNotes(notes, 'reps');
+
+  // data
+  const dblocks=view.map(a=>{
+    const times=[...new Set(a.reps.flatMap(r=>r.points.map(p=>p.t)))].sort((x,y)=>x-y);
+    const head=['Time (min)',...a.reps.map(r=>r.name+(r.hidden?' (excl.)':'')),'Mean','SD','n'];
+    const rowsD=times.map(t=>{ const mc=a.mc.find(p=>p.t===t); return {cells:[fmtT(t), ...a.reps.map(r=>{ const p=r.points.find(p=>p.t===t); return p?fmtNum(p.y,dy):'–'; }), mc?fmtNum(mc.y,dy):'–', mc?fmtNum(mc.sd,dy):'–', mc?mc.n:0]}; });
+    return {caption:names.length>1?a.name:null, head, rows:rowsD};
+  });
+  writeTable('data', dblocks);
+}
+
+// ----- mode: each Nb is a different sample, technical replicates only -----
+function renderSamples(ds, rows){
+  $('condBar').innerHTML='';
+  const multi=ds.conds.length>1;
+  const series=[], emptyS=[];
+  ds.conds.forEach(c=>c.reps.forEach(r=>{
+    if(!r.points.length){ emptyS.push((multi?c.name+' ':'')+r.name); return; }
+    const label=(state.labels[r.name]||'').trim()||r.name;
+    const key='S|'+c.name+'|'+r.name;
+    series.push({key, id:(multi?c.name+' ':'')+r.name, name:(multi?c.name+' ':'')+label, points:r.points, hidden:state.hidden.has(key), fit:fitFirstOrder(r.points,state.model)});
+  }));
+  const w=[...ds.warnings];
+  if(emptyS.length) w.push(`${emptyS.join(', ')}: no supernatant samples, so ${emptyS.length>1?'these were':'this was'} left out. Check “Recognised samples” for the row names.`);
+  if(ds.maxTech<2) w.push('No repeated sample names found, so there are no technical error bars. Measure each sample several times and keep the same name for every measurement.');
+  renderWarnings(w);
+
+  const layers=[], curves=[];
+  series.forEach((s,i)=>{ if(s.hidden) return;
+    if(s.fit.ok) curves.push({f:s.fit.f, color:color(i), cls:'fit mean'});
+    layers.push({color:color(i), shape:'dot', dx:(i-(series.length-1)/2)*4, pts:s.points.map(p=>({t:p.t,y:p.y,err:p.sdT,title:`${s.name}, ${fmtT(p.t)} min: ${fy(p.y)}`+(isFinite(p.sdT)?` ± ${fsd(p.sdT)}`:'')+` (${p.nT} measurement${p.nT>1?'s':''})`}))});
+  });
+  drawPlot(layers, curves, [], rows);
+  $('legend').innerHTML=series.map((s,i)=>legendBtn(s.key, s.name, color(i), !s.hidden, 'dot')).join('')+`<span class="lg-hint">Error bars: SD of technical replicates. Click a sample to hide it.</span>`;
+
+  const pct=isPct(), uy=pct?'%':'A', dy=pct?1:3, dv=pct?2:3;
+  const head=['Sample','ID','Points','k (min⁻¹)','SE of k','t½ (min)','SE of t½',`Plateau (${uy})`,`Initial rate (${uy}/min)`,'R²'];
+  const notes=new Set();
+  const out=series.map(s=>{ const f=s.fit;
+    if(!f.ok) return {cls:s.hidden?'muted':'', cells:[s.name,s.id,s.points.length,f.reason,'','','','','','']};
+    if(f.edge) notes.add(f.edge); if(f.dof<=1) notes.add('dof');
+    const seT=Math.LN2*f.seK/(f.k*f.k);
+    return {cls:s.hidden?'muted':'', cells:[s.name+(s.hidden?' (hidden)':''), s.id, f.n, fmtNum(f.k,3), fmtNum(f.seK,3), fmtNum(f.thalf,2), fmtNum(seT,2), fmtNum(f.yinf,dy), fmtNum(f.v0,dv), fmtNum(f.R2,3)]}; });
+  writeTable('results',[{caption:null, head, rows:out}]);
+  writeNotes(notes,'samples');
+
+  const times=[...new Set(series.flatMap(s=>s.points.map(p=>p.t)))].sort((a,b)=>a-b);
+  const dhead=['Time (min)', ...series.flatMap(s=>[s.name, 'SD', 'n'])];
+  const drows=times.map(t=>({cells:[fmtT(t), ...series.flatMap(s=>{ const p=s.points.find(p=>p.t===t); return p?[fmtNum(p.y,dy), fmtNum(p.sdT,dy), p.nT]:['–','–','0']; })]}));
+  writeTable('data',[{caption:null, head:dhead, rows:drows}]);
+}
+
+function renderLabels(ds){
+  const box=$('labelBox');
+  box.hidden = state.mode!=='samples';
+  const names=[...new Set(ds.conds.flatMap(c=>c.reps.map(r=>r.name)))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+  const sig=names.join('|');
+  if(box.dataset.sig===sig) return;
+  box.dataset.sig=sig;
+  $('labels').innerHTML = names.length? names.map(n=>`<label class="lbl"><span>${esc(n)}</span><input type="text" data-name="${esc(n)}" value="${esc(state.labels[n]||'')}" placeholder="e.g. ${n===names[0]?'Benchmark':'10% NaAc'}"></label>`).join('') : '<p class="hint">No samples recognised yet.</p>';
+}
+
+function legendBtn(key,label,col,on,shape){ return `<button type="button" class="lg" data-key="${esc(key)}" aria-pressed="${on}"><span class="sw ${shape}" style="background:${col}"></span>${esc(label)}</button>`; }
+function pm(m,s,d){ return isFinite(s)? `${fmtNum(m,d)} ± ${fmtNum(s,d)}` : fmtNum(m,d); }
+
+function writeTable(id, blocks){
+  $(id).innerHTML=blocks.map(b=>`<table>${b.caption?`<caption>${esc(b.caption)}</caption>`:''}<thead><tr>${b.head.map((h,i)=>`<th class="${i?'n':''}">${esc(h)}</th>`).join('')}</tr></thead><tbody>${b.rows.map(r=>`<tr class="${r.cls||''}">${r.cells.map((c,i)=>`<td class="${i?'n':'first'}">${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`).join('');
+  lastTables[id]=blocks.map(b=>[...(b.caption?[b.caption]:[]), b.head.join('\t'), ...b.rows.map(r=>r.cells.join('\t'))].join('\n')).join('\n\n');
+}
+function writeNotes(notes, mode){
+  const n=[];
+  n.push(state.model==='origin'
+    ? 'Model: y = y∞ (1 − e^(−kt)), forced through zero at t = 0. t½ = ln 2 / k; initial rate = k · y∞.'
+    : 'Model: y = y₀ + (y∞ − y₀)(1 − e^(−kt)) with a free start value. t½ = ln 2 / k; initial rate = k · (y∞ − y₀).');
+  if(mode==='reps') n.push('SE comes from the fit itself; the spread between replicates (SD) is the better number to report.');
+  else n.push('Each sample is fitted to the means of its technical replicates. SE comes from the fit residuals and the technical SD only shows measurement noise, so neither replaces independent syntheses.');
+  if(notes.has('dof')) n.push('Some fits have one or no degrees of freedom left, so their SE is unreliable or missing.');
+  if(notes.has('fast')) n.push('At least one k hit the upper search limit: dissolution was essentially complete before the first sample, so treat that k as a lower bound.');
+  if(notes.has('slow')) n.push('At least one k hit the lower search limit: there is too little change in the window to estimate it.');
+  $('resNote').textContent=n.join(' ');
+}
+
+function renderCondBar(names){
+  if(names.length<2){ $('condBar').innerHTML=''; return; }
+  const btn=(v,l)=>`<button type="button" data-cond="${esc(v)}" aria-pressed="${state.cond===v}">${esc(l)}</button>`;
+  $('condBar').innerHTML=`<span class="bar-label">Condition</span>`+names.map(n=>btn(n,n)).join('')+btn('__all__','Compare all');
+}
+function renderWarnings(w){ $('warn').innerHTML = w.length? `<ul>${w.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>` : ''; }
+
+function renderParsed(rows){
+  const ok=rows.filter(r=>r.status==='ok').length;
+  $('parsedCount').textContent=`${ok} of ${rows.length} rows used`;
+  const role=r=> r.status!=='ok'? `<span class="skip">skipped, ${esc(r.note)}</span>` : r.role==='sup'? (r.typo?'sup (written “sub”)':'sup') : r.role==='all'?'all' : 'total (unlabelled)';
+  $('parsed').innerHTML=`<table><thead><tr><th>Name</th><th>Read as</th><th class="n">t (min)</th><th>Sample</th><th class="n">Abs</th></tr></thead><tbody>${
+    rows.map(r=>`<tr class="${r.status!=='ok'?'muted':''}"><td>${esc(r.name)}</td><td>${role(r)}</td><td class="n">${r.status==='ok'?fmtT(r.time):''}</td><td>${r.status==='ok'?esc(r.rep):''}</td><td class="n">${isFinite(r.abs)?r.abs:''}</td></tr>`).join('')
+  }</tbody></table>`;
+}
+
+function niceTicks(min,max,count=6){
+  if(max<=min) max=min+1;
+  const raw=(max-min)/count, mag=10**Math.floor(Math.log10(raw)), e=raw/mag;
+  const step=(e>=7.5?10:e>=3.5?5:e>=1.5?2:1)*mag;
+  const lo=Math.floor(min/step+1e-9)*step, hi=Math.ceil(max/step-1e-9)*step;
+  const ticks=[]; for(let v=lo; v<=hi+step*1e-6; v+=step) ticks.push(+v.toFixed(10));
+  return {min:lo,max:hi,ticks,step};
+}
+function tickFmt(v,step){ const d=Math.max(0,-Math.floor(Math.log10(step)+1e-9)); return v.toFixed(d); }
+
+function drawPlot(layers, curves, hollow, rows){
+  const W=720,H=440,m={l:64,r:20,t:20,b:58}, pw=W-m.l-m.r, ph=H-m.t-m.b;
+  let tmax=0,ymin=0,ymax=0;
+  const see=(t,y)=>{ if(isFinite(t)) tmax=Math.max(tmax,t); if(isFinite(y)){ ymax=Math.max(ymax,y); ymin=Math.min(ymin,y); } };
+  for(const L of [...layers,...hollow]) for(const p of L.pts){ see(p.t,p.y); if(isFinite(p.err)) see(p.t,p.y+p.err); }
+  for(const c of curves) for(let i=0;i<=40;i++) see(NaN,c.f(tmax*i/40));
+  if(isPct()) ymax=Math.max(ymax,100);
+  const xt=niceTicks(0,tmax||1,6), yt=niceTicks(ymin,ymax*1.03||1,6);
+  const X=t=>m.l+(t-xt.min)/(xt.max-xt.min)*pw, Y=y=>m.t+ph-(y-yt.min)/(yt.max-yt.min)*ph;
+  let s=`<defs><clipPath id="pc"><rect x="${m.l}" y="${m.t}" width="${pw}" height="${ph}"/></clipPath></defs>`;
+  s+=yt.ticks.map(v=>`<line class="grid" x1="${m.l}" x2="${m.l+pw}" y1="${Y(v)}" y2="${Y(v)}"/><text class="tick" x="${m.l-8}" y="${Y(v)+4}" text-anchor="end">${tickFmt(v,yt.step)}</text>`).join('');
+  s+=xt.ticks.map(v=>`<line class="tickmark" x1="${X(v)}" x2="${X(v)}" y1="${m.t+ph}" y2="${m.t+ph+5}"/><text class="tick" x="${X(v)}" y="${m.t+ph+20}" text-anchor="middle">${tickFmt(v,xt.step)}</text>`).join('');
+  const y0=Y(Math.max(0,yt.min));
+  s+=`<line class="axis" x1="${m.l}" x2="${m.l+pw}" y1="${y0}" y2="${y0}"/><line class="axis" x1="${m.l}" x2="${m.l}" y1="${m.t}" y2="${m.t+ph}"/>`;
+  if(isPct()) s+=`<line class="ref" x1="${m.l}" x2="${m.l+pw}" y1="${Y(100)}" y2="${Y(100)}"/>`;
+  s+=`<text class="atitle" x="${m.l+pw/2}" y="${H-12}" text-anchor="middle">Time in cysteine (min)</text>`;
+  s+=`<text class="atitle" transform="translate(16 ${m.t+ph/2}) rotate(-90)" text-anchor="middle">${esc(yLabel(rows))}</text>`;
+  s+=`<g clip-path="url(#pc)">`+curves.map(c=>{ let d=''; for(let i=0;i<=160;i++){ const t=xt.max*i/160; d+=(i?'L':'M')+X(t).toFixed(1)+','+Y(c.f(t)).toFixed(1); } return `<path class="${c.cls}" d="${d}" style="stroke:${c.color}"/>`; }).join('')+`</g>`;
+  for(const L of hollow) for(const p of L.pts) s+=`<circle class="pt hollow" cx="${X(p.t)+L.dx}" cy="${Y(p.y)}" r="4" style="stroke:${L.color}"><title>${esc(p.title)}</title></circle>`;
+  for(const L of layers) for(const p of L.pts){
+    const x=X(p.t)+L.dx, y=Y(p.y);
+    if(isFinite(p.err)&&p.err>0){ const a=Y(p.y-p.err), b=Y(p.y+p.err); s+=`<line class="err" x1="${x}" x2="${x}" y1="${a}" y2="${b}" style="stroke:${L.color}"/><line class="err" x1="${x-4}" x2="${x+4}" y1="${a}" y2="${a}" style="stroke:${L.color}"/><line class="err" x1="${x-4}" x2="${x+4}" y1="${b}" y2="${b}" style="stroke:${L.color}"/>`; }
+    s+= L.shape==='square'
+      ? `<rect class="mean" x="${x-5}" y="${y-5}" width="10" height="10" style="fill:${L.color}"><title>${esc(p.title)}</title></rect>`
+      : `<circle class="pt" cx="${x}" cy="${y}" r="4.5" style="fill:${L.color}"><title>${esc(p.title)}</title></circle>`;
+  }
+  const svg=$('plot'); svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.innerHTML=s;
+}
+
+// ----- local export (only works when the file runs on your computer) -----
+function exportSvgString(){
+  const root=document.documentElement, prev=root.getAttribute('data-theme');
+  root.setAttribute('data-theme','light');
+  const src=$('plot'), clone=src.cloneNode(true);
+  const a=src.querySelectorAll('*'), b=clone.querySelectorAll('*');
+  const props=['fill','stroke','stroke-width','stroke-dasharray','opacity','font-size','font-family'];
+  a.forEach((el,i)=>{ const cs=getComputedStyle(el); props.forEach(p=>{ const v=cs.getPropertyValue(p); if(v) b[i].style.setProperty(p, p==='font-family'? v+', Arial, sans-serif' : v); }); });
+  if(prev==null) root.removeAttribute('data-theme'); else root.setAttribute('data-theme',prev);
+  clone.setAttribute('xmlns','http://www.w3.org/2000/svg'); clone.setAttribute('width','720'); clone.setAttribute('height','440');
+  clone.insertAdjacentHTML('afterbegin','<rect width="100%" height="100%" fill="#ffffff"/>');
+  const items=[...document.querySelectorAll('#legend .lg')].filter(el=>el.getAttribute('aria-pressed')!=='false');
+  root.setAttribute('data-theme','light');
+  let lg=''; const n=items.length;
+  items.forEach((el,i)=>{ const sw=el.querySelector('.sw'); const col=getComputedStyle(sw).backgroundColor; const y=440-58-14-(n-1-i)*20;
+    lg+= sw.classList.contains('sq')? `<rect x="${720-20-180}" y="${y-5}" width="10" height="10" fill="${col}"/>` : `<circle cx="${720-20-175}" cy="${y}" r="5" fill="${col}"/>`;
+    lg+=`<text x="${720-20-160}" y="${y+4}" font-size="13" font-family="IBM Plex Sans, Arial, sans-serif" fill="#1A242C">${esc(el.textContent.trim())}</text>`; });
+  if(prev==null) root.removeAttribute('data-theme'); else root.setAttribute('data-theme',prev);
+  clone.insertAdjacentHTML('beforeend',lg);
+  return new XMLSerializer().serializeToString(clone);
+}
+function download(blob,name){ const u=URL.createObjectURL(blob), a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),2000); }
+function savePng(){
+  const img=new Image(), u=URL.createObjectURL(new Blob([exportSvgString()],{type:'image/svg+xml'}));
+  img.onload=()=>{ const c=document.createElement('canvas'); c.width=720*4; c.height=440*4; const g=c.getContext('2d'); g.scale(4,4); g.drawImage(img,0,0); URL.revokeObjectURL(u); c.toBlob(bl=>download(bl,'dissolution-kinetics.png'),'image/png'); };
+  img.src=u;
+}
+function saveCsv(){
+  const toCsv=t=>t.split('\n').map(l=>l.split('\t').map(c=>/[;",]/.test(c)?`"${c.replace(/"/g,'""')}"`:c).join(';')).join('\n');
+  download(new Blob(['\ufeff'+toCsv(lastTables.results)+'\n\n'+toCsv(lastTables.data)],{type:'text/csv'}),'dissolution-kinetics.csv');
+}
+
+async function copyText(txt, btn){
+  let ok=false;
+  try{ await navigator.clipboard.writeText(txt); ok=true; }catch(e){
+    try{ const ta=document.createElement('textarea'); ta.value=txt; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); ok=document.execCommand('copy'); ta.remove(); }catch(e2){}
+  }
+  const old=btn.dataset.label||btn.textContent; btn.dataset.label=old;
+  btn.textContent= ok?'Copied':'Copy failed, select the table by hand';
+  setTimeout(()=>btn.textContent=old,1600);
+}
+
+function init(){
+  load();
+  let timer; const soon=()=>{ clearTimeout(timer); timer=setTimeout(render,200); };
+  $('raw').addEventListener('input',soon);
+  document.querySelectorAll('input[name=signal]').forEach(el=>el.addEventListener('change',()=>{ state.signal=el.value; render(); }));
+  document.querySelectorAll('input[name=model]').forEach(el=>el.addEventListener('change',()=>{ state.model=el.value; render(); }));
+  document.querySelectorAll('input[name=mode]').forEach(el=>el.addEventListener('change',()=>{ state.mode=el.value; state.hidden.clear(); render(); }));
+  $('labels').addEventListener('input',e=>{ const n=e.target.dataset.name; if(n==null) return; state.labels[n]=e.target.value; soon(); });
+  $('showAll').addEventListener('change',e=>{ state.showAll=e.target.checked; render(); });
+  $('example').addEventListener('click',()=>{ $('raw').value=EXAMPLE; state.hidden.clear(); render(); });
+  $('clear').addEventListener('click',()=>{ $('raw').value=''; state.hidden.clear(); render(); $('raw').focus(); });
+  $('condBar').addEventListener('click',e=>{ const b=e.target.closest('button[data-cond]'); if(!b) return; state.cond=b.dataset.cond; render(); });
+  $('legend').addEventListener('click',e=>{ const b=e.target.closest('button[data-key]'); if(!b) return; const k=b.dataset.key; state.hidden.has(k)?state.hidden.delete(k):state.hidden.add(k); render(); });
+  $('copyRes').addEventListener('click',e=>copyText(lastTables.results,e.currentTarget));
+  $('copyData').addEventListener('click',e=>copyText(lastTables.data,e.currentTarget));
+  if(isLocal){ $('exportRow').hidden=false;
+    $('saveSvg').addEventListener('click',()=>download(new Blob([exportSvgString()],{type:'image/svg+xml'}),'dissolution-kinetics.svg'));
+    $('savePng').addEventListener('click',savePng);
+    $('saveCsv').addEventListener('click',saveCsv); }
+  render();
+}
+init();
+</script>
+</body>
+</html>
