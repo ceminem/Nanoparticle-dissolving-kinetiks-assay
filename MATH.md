@@ -38,7 +38,32 @@ measurements of the same tube. They are averaged first:
 
   x̄ = (1/n) Σ xᵢ  s = √( Σ (xᵢ − x̄)² / (n − 1) )
 
-**Several wavelengths.** A NanoDrop row can hold several λ / Abs. column
+**Two export formats** are recognised:
+
+1. **Peak table**: one row per sample with λ / Abs. columns (the app's
+   example).
+2. **Spectrum export**: a line `Wavelength (nm) <tab> sample <tab> …`, then
+   one row per wavelength (e.g. 200–750 nm) and one column per sample. Each
+   sample keeps its whole spectrum, and the value used is taken from it:
+   - **main peak** = the **maximum** between 200 and 250 nm (range and
+     maximum/mean adjustable) – the same as the NanoDrop's peak column;
+   - **second wavelength** = the **mean** over 633 ± 5 nm (centre, ± width
+     and mean/maximum adjustable). The mean over a few nm is less noisy than
+     a single wavelength; use *maximum* for a narrow band.
+   Columns without a time point (Blank 1, …) are skipped.
+
+**Names.** The time point (`t3`, with `[15min]`), the fraction (`sup` /
+`all`) and the replicate (`Nb_1`, `sample-1`: letters + number at the end)
+are taken out of the name; whatever is left is the **condition**, wherever it
+stands: `Bench t1 [5min] sup Nb_1` → Bench, `t1 [5min] sup 20 mM sample-1`
+→ 20 mM, `t1 [5min] sup sample-1` → Sample. `t0` without brackets is 0 min.
+
+**t0 for sup ÷ t0.** Each condition / replicate uses its own t0 total. A
+series without one (e.g. `20 mM` measured from the same stock) uses the t0
+of the only other condition with the same replicate, and the app says so;
+with no or several candidates it is left out.
+
+**Several wavelengths (peak table).** A NanoDrop row can hold several λ / Abs. column
 pairs (e.g. the peak near 210 nm and 633 nm). With a header row the pairs are
 taken by their column names (λ 1 / Abs. 1, λ 2 / Abs. 2, …); without one,
 the numbers after the name are read as λ, A, λ, A, … in order.

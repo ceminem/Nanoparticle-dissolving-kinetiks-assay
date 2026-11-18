@@ -18,14 +18,19 @@ right-click the `.bat` → *Send to → Desktop*.
 
 ## Use it
 
-1. Copy the NanoDrop table (name, λ, absorbance columns) and paste it on the
-   left. *Load example* shows the expected format.
+1. Copy the NanoDrop table and paste it on the left. Both exports work:
+   the **peak table** (one row per sample: name, λ, absorbance; *Load
+   example*) and the **spectrum export** (`Wavelength (nm)` + one column per
+   sample). From a spectrum, the main peak is the maximum between 200 and
+   250 nm, the second wavelength the mean over 633 ± 5 nm (both adjustable).
 2. Sample names need
    - a **time point**: `t1 [5min]` (also `[0.5h]`, `[30s]`),
    - the **fraction**: `sup` (supernatant = dissolved) or `all` (whole
      suspension = total); a t0 sample needs neither,
-   - a **replicate**: `Nb_1`, `Nb_2` …
-   - Text before the time point is the condition (`Bench t1 [5min] sup Nb_1`).
+   - a **replicate**: `Nb_1`, `sample-1` … (letters + number at the end)
+   - The rest of the name is the condition, wherever it stands
+     (`Bench t1 [5min] sup Nb_1` → Bench, `t1 [5min] sup 20 mM sample-1` → 20 mM).
+   - If only t0 has an `all` sample, choose **% dissolved, sup ÷ t0**.
    Rows without a time point (blanks) are skipped; *Recognised samples* shows
    how every row was read.
    If the table has a second wavelength (columns λ 2 / Abs. 2, e.g. 633 nm),

@@ -59,6 +59,11 @@ legend{font-weight:600;padding:0;margin-bottom:8px}
 .opt input.wl{width:5.5em;font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--rule);border-radius:4px;padding:1px 6px;margin:0 2px;font-variant-numeric:tabular-nums}
 #chanTag{display:inline-block;font-size:13px;font-weight:500;color:var(--accent);margin-left:8px}
 #compare:empty{display:none}
+.specrow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px;font-size:14px}
+.specrow>span:first-child{width:70px;color:var(--muted)}
+.specrow{flex-wrap:nowrap}
+.specrow input{width:4.2em;font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--rule);border-radius:4px;padding:3px 6px;font-variant-numeric:tabular-nums}
+.specrow select{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--rule);border-radius:4px;padding:3px 4px}
 .check{display:flex;gap:10px;align-items:flex-start;margin-top:16px;font-size:14px;cursor:pointer}
 .check input{margin-top:4px;accent-color:var(--accent)}
 details{margin-top:18px;border-top:1px solid var(--rule);padding-top:12px}
@@ -130,8 +135,8 @@ figure{margin:0}
   <section>
     <div class="panel">
       <label class="lab" for="raw">NanoDrop table</label>
-      <textarea id="raw" spellcheck="false" placeholder="Paste rows here, e.g. Bench t1 [5min] sup Nb_1    212    6.025"></textarea>
-      <p class="hint">Names need a time point like “t1 [5min]”, the fraction “sup” or “all”, and a replicate like “Nb_1”. Rows without a time point, such as blanks, are skipped.</p>
+      <textarea id="raw" spellcheck="false" placeholder="Paste a NanoDrop table: either the peak table (one row per sample) or the spectrum export (Wavelength (nm) + one column per sample)."></textarea>
+      <p class="hint">Names need a time point like “t1 [5min]”, the fraction “sup” or “all”, and a replicate like “Nb_1” or “sample-1”; the rest of the name (e.g. “20 mM”) is the condition. Samples without a time point, such as blanks, are skipped.</p>
       <div class="row"><button type="button" id="example">Load example</button><button type="button" id="clear">Clear</button></div>
 
       <fieldset>
@@ -153,8 +158,13 @@ figure{margin:0}
 
       <fieldset>
         <legend>Wavelength</legend>
-        <label class="opt"><input type="radio" name="channel" value="main"><span>Main peak (λ 1)</span><small>The first λ / Abs. pair of each row, e.g. the peak near 210 nm.</small></label>
-        <label class="opt"><input type="radio" name="channel" value="second"><span>Second wavelength: <input id="wl2" class="wl" type="number" step="1" min="190" max="900" aria-label="Second wavelength in nm"> nm</span><small>The λ / Abs. pair within ±25 nm of this wavelength in each row. Rows without it are skipped.</small></label>
+        <label class="opt"><input type="radio" name="channel" value="main"><span>Main peak (λ 1)</span><small>The first λ / Abs. pair of each row, e.g. the peak near 210 nm. For a spectrum export: the value set below.</small></label>
+        <label class="opt"><input type="radio" name="channel" value="second"><span>Second wavelength: <input id="wl2" class="wl" type="number" step="1" min="190" max="900" aria-label="Second wavelength in nm"> nm</span><small>The λ / Abs. pair within ±25 nm of this wavelength in each row (spectrum export: the value set below). Rows without it are skipped.</small></label>
+        <div id="specBox" class="labelbox" hidden>
+          <p class="sublab">Spectrum export: how each value is taken from the spectrum</p>
+          <div class="specrow"><span>Main peak</span><select id="mainHow" aria-label="Main peak value"><option value="max">maximum</option><option value="mean">mean</option></select><input id="mainLo" type="number" step="1" aria-label="Main peak from nm">–<input id="mainHi" type="number" step="1" aria-label="Main peak to nm">nm</div>
+          <div class="specrow"><span>Second</span><select id="how2" aria-label="Second wavelength value"><option value="mean">mean</option><option value="max">maximum</option></select>±<input id="win2" type="number" step="1" min="0" aria-label="Half window nm">nm</div>
+        </div>
         <p class="hint" id="wlInfo"></p>
       </fieldset>
 
@@ -262,8 +272,7 @@ function parseName(name){
   let time = NaN, timeFromIndex=false;
   let mm = name.match(/[\[(]\s*(\d+(?:[.,]\d+)?)\s*(min|m|h|s|sec)?\s*[\])]/i) || name.match(/(\d+(?:[.,]\d+)?)\s*(min|h|sec|s)\b/i);
   if(mm){ time=num(mm[1]); const u=(mm[2]||'min').toLowerCase(); if(u==='h') time*=60; else if(u==='s'||u==='sec') time/=60; }
-  else { time=tIdx; timeFromIndex=true; }
-  const cond = name.slice(0, tM.index).trim() || 'Sample';
+  else { time=tIdx; timeFromIndex = tIdx>0; }   // "t0" without brackets is 0 min anyway
   const rest = name.slice(tM.index + tM[0].length);
   let role='unlabelled', typo=false;
   const sm = rest.match(/(?:^|[\s_\-\]])(sup|sub|supernatant|überstand|ueberstand)(?=$|[\s_\-])/i);
@@ -272,10 +281,44 @@ function parseName(name){
   let rep='Rep_1';
   const rm = rest.match(/([A-Za-z]+)[ _\-]?(\d+)\s*$/);
   if(rm) rep = rm[1]+'_'+rm[2];
+  // The condition is the rest of the name, wherever it stands: "Bench t1 [5min]
+  // sup Nb_1" -> Bench, "t1 [5min] sup 20 mM sample-1" -> 20 mM.
+  let c = name.replace(tM[0], ' ');
+  if(mm) c = c.replace(mm[0], ' ');
+  if(rm) c = c.replace(new RegExp(rm[0].replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$'), ' ');
+  c = c.replace(/(^|[\s_\-\]])(sup|sub|supernatant|überstand|ueberstand|all|total|tot)(?=$|[\s_\-])/ig, ' ');
+  const cond = c.replace(/[\s_\-]+/g,' ').trim() || 'Sample';
   return {cond, tIdx, time, timeFromIndex, role, typo, rep};
 }
 
+// NanoDrop spectrum export: a line "Wavelength (nm) <tab> sample <tab> ...",
+// then one row per wavelength. Every sample keeps its whole spectrum; the
+// value used is taken from it per wavelength channel (see pickPair).
+function parseSpectrum(lines, hi){
+  const head=lines[hi];
+  const sep = head.includes('\t')? '\t' : head.includes(';')? ';' : ',';
+  const names=head.split(sep).slice(1).map(x=>x.trim());
+  const wl=[], cols=names.map(()=>[]);
+  for(let i=hi+1;i<lines.length;i++){
+    const c=lines[i].split(sep); const w=num(c[0]); if(!isFinite(w)) continue;
+    wl.push(w); names.forEach((_,j)=>cols[j].push(num(c[j+1])));
+  }
+  const rows=[];
+  names.forEach((name,j)=>{
+    if(!name) return;
+    const r={line:hi+1, name, spec:{wl, v:cols[j]}, pairs:[]};
+    const n=parseName(name);
+    if(!n){ r.status='skip'; r.note=/^blank/i.test(name)?'blank':'no time point'; rows.push(r); return; }
+    Object.assign(r,n); r.status='ok'; rows.push(r);
+  });
+  rows.spectrum={wlMin:Math.min(...wl), wlMax:Math.max(...wl), n:wl.length};
+  return rows;
+}
+
 function parseText(text){
+  const lines=text.split(/\r?\n/);
+  const hi=lines.findIndex(l=>/^\s*wavelength/i.test(l));
+  if(hi>=0) return parseSpectrum(lines, hi);
   const rows=[]; let head=null;
   text.split(/\r?\n/).forEach((raw, li)=>{
     if(!raw.trim()) return;
@@ -295,7 +338,18 @@ function parseText(text){
 // main   = the first λ / Abs. pair of a row (the peak NanoDrop reports first)
 // second = the pair whose λ is within WL_TOL nm of the chosen wavelength
 const WL_TOL=25;
+function fromSpectrum(sp, lo, hi, how){
+  let best=null, sum=0, n=0;
+  sp.wl.forEach((w,i)=>{ const v=sp.v[i]; if(w<lo||w>hi||!isFinite(v)) return;
+    sum+=v; n++; if(!best||v>best.abs) best={lam:w, abs:v}; });
+  if(!n) return null;
+  return how==='max'? best : {lam:(lo+hi)/2, abs:sum/n};
+}
 function pickPair(r, ch, wl2){
+  if(r.spec){
+    return ch==='main'? fromSpectrum(r.spec, state.mainLo, state.mainHi, state.mainHow)
+                      : fromSpectrum(r.spec, state.wl2-state.win2, state.wl2+state.win2, state.how2);
+  }
   const ps=r.pairs||[];
   if(ch==='main'){ const p=ps[0]; return p&&isFinite(p[1])? {lam:p[0], abs:p[1]} : null; }
   let best=null;
@@ -333,13 +387,29 @@ function buildDataset(rows, signal){
     (slot[key]=slot[key]||[]).push(r.abs);
     maxTech=Math.max(maxTech,slot[key].length);
   }
+  // t0 total of every condition / replicate, for "sup ÷ t0"
+  const totalIn = (tm,t) => { const s=tm.get(t); return stats(s.all&&s.all.length? s.all : s.unl); };
+  const t0Of = new Map();
+  for(const [cname,rm] of cmap) for(const [rname,tm] of rm){
+    const t=[...tm.keys()].sort((a,b)=>a-b).find(t=>totalIn(tm,t)!=null);
+    if(t!=null) t0Of.set(cname+'|'+rname, {cond:cname, st:totalIn(tm,t)});
+  }
   const conds=[];
   for(const [cname,rm] of cmap){
     const reps=[];
     for(const [rname,tm] of rm){
       const times=[...tm.keys()].sort((a,b)=>a-b);
-      const totalOf = t => { const s=tm.get(t); return stats(s.all&&s.all.length? s.all : s.unl); };
+      const totalOf = t => totalIn(tm,t);
       const t0 = times.find(t=>totalOf(t)!=null);
+      // a series without its own t0 (e.g. "20 mM" measured from the same
+      // stock) borrows the t0 of the only other condition with this replicate
+      let t0Den = t0!=null? totalOf(t0) : null;
+      if(signal==='fracT0' && t0Den==null){
+        const others=[...t0Of.entries()].filter(([k,v])=>v.cond!==cname && k===v.cond+'|'+rname).map(([,v])=>v);
+        if(others.length===1){ t0Den=others[0].st;
+          warnings.push(`${cname} ${rname}: no t0 of its own - the t0 total of “${others[0].cond}” ${rname} was used. Measure a t0 per condition if the stocks differ.`); }
+      }
+      const noAll=[];
       const points=[];
       for(const t of times){
         const sup=stats(tm.get(t).sup);
@@ -348,13 +418,14 @@ function buildDataset(rows, signal){
         const rel=(st)=> st.n>1? st.s/st.m : 0;
         if(signal==='raw'){ y=sup.m; sdT=sup.s; }
         else {
-          if(signal==='fracAll'){ den=totalOf(t); if(!den){ warnings.push(`${cname} ${rname}: no “all” sample at ${fmtT(t)} min, so this point was left out.`); continue; } }
-          else { if(t0==null){ warnings.push(`${cname} ${rname}: no t0 total found, so this sample was left out.`); break; } den=totalOf(t0); }
+          if(signal==='fracAll'){ den=totalOf(t); if(!den){ noAll.push(t); continue; } }
+          else { if(t0Den==null){ warnings.push(`${cname} ${rname}: no t0 total found, so this sample was left out.`); break; } den=t0Den; }
           y=100*sup.m/den.m;
           sdT = (sup.n>1||den.n>1)? Math.abs(y)*Math.sqrt(rel(sup)**2+rel(den)**2) : NaN;
         }
         points.push({t, y, sdT, nT:sup.n, sup:sup.m, den:den?den.m:null});
       }
+      if(noAll.length) warnings.push(`${cname} ${rname}: ${noAll.length} time point${noAll.length>1?'s':''} without an “all” sample left out (${noAll.map(fmtT).join(', ')} min).`);
       const allPts = times.filter(t=>totalOf(t)!=null).map(t=>({t, y: totalOf(t).m}));
       reps.push({name:rname, points, allPts});
     }
@@ -460,7 +531,9 @@ const EXAMPLE=`#\tName\tλ 1\tAbs. 1
 27\tBench t4 [20min] all Nb_2\t210\t11.05
 28\tBench t4 [20min] all Nb_3\t210\t12.82`;
 
-const state={signal:'fracAll', model:'origin', showAll:false, cond:null, hidden:new Set(), mode:'reps', labels:{}, channel:'main', wl2:633};
+const state={signal:'fracAll', model:'origin', showAll:false, cond:null, hidden:new Set(), mode:'reps', labels:{}, channel:'main', wl2:633,
+             mainLo:200, mainHi:250, mainHow:'max', win2:5, how2:'mean'};
+const SPEC_KEYS=['mainLo','mainHi','mainHow','win2','how2'];
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const color=i=>`var(--s${(i%8)+1})`;
 const isLocal = location.protocol==='file:' || ['localhost','127.0.0.1','::1'].includes(location.hostname);
@@ -468,22 +541,29 @@ let lastTables={results:'',data:'',compare:''};
 
 function load(){
   try{ const s=JSON.parse(localStorage.getItem(KEY)||'null');
-    if(s){ $('raw').value=s.raw||''; for(const k of ['signal','model','mode','channel']) if(s[k]) state[k]=s[k]; state.showAll=!!s.showAll; state.labels=s.labels||{}; if(isFinite(+s.wl2)&&+s.wl2>0) state.wl2=+s.wl2; } }catch(e){}
+    if(s){ $('raw').value=s.raw||''; for(const k of ['signal','model','mode','channel']) if(s[k]) state[k]=s[k]; state.showAll=!!s.showAll; state.labels=s.labels||{}; if(isFinite(+s.wl2)&&+s.wl2>0) state.wl2=+s.wl2; for(const k of SPEC_KEYS) if(s[k]!=null&&s[k]!=='') state[k]= typeof state[k]==='number'? +s[k] : s[k]; } }catch(e){}
   if(!$('raw').value.trim()) $('raw').value=EXAMPLE;
   document.querySelector(`input[name=signal][value=${state.signal}]`).checked=true;
   document.querySelector(`input[name=model][value=${state.model}]`).checked=true;
   document.querySelector(`input[name=mode][value=${state.mode}]`).checked=true;
   document.querySelector(`input[name=channel][value=${state.channel}]`).checked=true;
   $('wl2').value=state.wl2;
+  for(const k of SPEC_KEYS) $(k).value=state[k];
   $('showAll').checked=state.showAll;
 }
-function save(){ try{ localStorage.setItem(KEY, JSON.stringify({raw:$('raw').value, signal:state.signal, model:state.model, mode:state.mode, showAll:state.showAll, labels:state.labels, channel:state.channel, wl2:state.wl2})); }catch(e){} }
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify({raw:$('raw').value, signal:state.signal, model:state.model, mode:state.mode, showAll:state.showAll, labels:state.labels, channel:state.channel, wl2:state.wl2, ...Object.fromEntries(SPEC_KEYS.map(k=>[k,state[k]]))})); }catch(e){} }
 
 const isPct=()=>state.signal!=='raw';
+let curCh='main';     // the wavelength channel actually shown
 function yLabel(rows){
-  const at= (state.channel==='second' && rows.some(r=>r.status==='ok' && r.pairs && r.pairs.length>1))? `, ${state.wl2} nm` : '';
+  const at= curCh==='second'? `, ${state.wl2} nm` : '';
   if(state.signal==='fracAll') return `Dissolved (%, sup ÷ all at the same time${at})`;
   if(state.signal==='fracT0') return `Dissolved (%, sup ÷ total at t0${at})`;
+  if(rows.spectrum || rows.some(r=>r.spec)){
+    const ch2 = curCh==='second';
+    return ch2 ? `Supernatant absorbance, ${state.how2==='max'?'maximum':'mean'} ${state.wl2-state.win2}–${state.wl2+state.win2} nm`
+               : `Supernatant absorbance, ${state.mainHow==='max'?'maximum':'mean'} ${state.mainLo}–${state.mainHi} nm`;
+  }
   const l=rows.filter(r=>r.status==='ok'&&r.role==='sup'&&isFinite(r.lam)).map(r=>r.lam);
   return l.length? `Supernatant absorbance at peak (${Math.min(...l)}–${Math.max(...l)} nm)` : 'Supernatant absorbance';
 }
@@ -495,14 +575,25 @@ function render(){
   const all=parseText($('raw').value);
   const second=hasSecond(all, state.wl2);
   const nSecond=all.filter(r=>r.status==='ok' && pickPair(r,'second',state.wl2)).length, nOk=all.filter(r=>r.status==='ok').length;
-  $('wlInfo').textContent = nOk? (second? `${nSecond} of ${nOk} samples have a value near ${state.wl2} nm.` : `No column near ${state.wl2} nm in the pasted table - only the main peak can be analysed.`) : '';
+  const sp=all.spectrum;
+  $('specBox').hidden=!sp;
+  $('wlInfo').textContent = !nOk? '' : sp
+    ? `Spectrum export, ${sp.wlMin}–${sp.wlMax} nm.` + (second? '' : ` It does not reach ${state.wl2} nm - only the main peak can be analysed.`)
+    : (second? `${nSecond} of ${nOk} samples have a value near ${state.wl2} nm.` : `No column near ${state.wl2} nm in the pasted table - only the main peak can be analysed.`);
   // no values at the second wavelength in this table: show the main peak
   const ch = second? state.channel : 'main';
+  curCh = ch;
   const rows=rowsFor(all, ch, state.wl2);
   renderParsed(rows, all);
   $('chanTag').textContent = second? `at ${ch==='main'? 'the main peak' : state.wl2+' nm'}` : '';
   renderCompare(all, second);
   const ds=buildDataset(rows,state.signal);
+  if(state.signal==='fracAll'){
+    const ok=rows.filter(r=>r.status==='ok');
+    const allT=new Set(ok.filter(r=>r.role==='all').map(r=>r.time)), supT=new Set(ok.filter(r=>r.role==='sup').map(r=>r.time));
+    const missing=[...supT].filter(t=>!allT.has(t)).length;
+    if(missing && missing>=supT.size/2) ds.warnings.unshift(`Most time points have no “all” sample (only ${[...allT].map(fmtT).join(', ')||'none'} min). Choose “% dissolved, sup ÷ t0” under Signal to fit.`);
+  }
   renderLabels(ds);
   const hasData = ds.conds.some(c=>c.reps.some(r=>r.points.length));
   $('out').classList.toggle('is-empty',!hasData);
@@ -542,7 +633,8 @@ function renderCompare(all, second){
   const keys=[...new Set([...A.keys(), ...B.keys()])];
   const pct=isPct(), uy=pct?'%':'A', dy=pct?1:3;
   const lamMain=all.filter(r=>r.status==='ok'&&r.pairs&&r.pairs[0]&&isFinite(r.pairs[0][0])).map(r=>r.pairs[0][0]);
-  const mainLbl= lamMain.length? `main peak (${Math.min(...lamMain)}–${Math.max(...lamMain)} nm)` : 'main peak';
+  const mainLbl= all.spectrum? `main peak (${state.mainHow==='max'?'maximum':'mean'} ${state.mainLo}–${state.mainHi} nm)`
+                : lamMain.length? `main peak (${Math.min(...lamMain)}–${Math.max(...lamMain)} nm)` : 'main peak';
   const wLbl=`${state.wl2} nm`;
   const reps=state.mode!=='samples';
   const head=[reps?'Condition':'Sample', reps?'n':'', 'k main', `k ${wLbl}`, 't½ main', `t½ ${wLbl}`, 'Plateau main', `Plateau ${wLbl}`].filter((h,i)=>reps||i!==1);
@@ -821,6 +913,8 @@ function init(){
   document.querySelectorAll('input[name=model]').forEach(el=>el.addEventListener('change',()=>{ state.model=el.value; render(); }));
   document.querySelectorAll('input[name=channel]').forEach(el=>el.addEventListener('change',()=>{ state.channel=el.value; render(); }));
   $('wl2').addEventListener('input',e=>{ const v=parseFloat(e.target.value); if(isFinite(v)&&v>0){ state.wl2=v; soon(); } });
+  for(const k of ['mainLo','mainHi','win2']) $(k).addEventListener('input',e=>{ const v=parseFloat(e.target.value); if(isFinite(v)&&v>=0){ state[k]=v; soon(); } });
+  for(const k of ['mainHow','how2']) $(k).addEventListener('change',e=>{ state[k]=e.target.value; render(); });
   $('wl2').addEventListener('focus',()=>{ if(state.channel!=='second'){ state.channel='second'; document.querySelector('input[name=channel][value=second]').checked=true; render(); } });
   document.querySelectorAll('input[name=mode]').forEach(el=>el.addEventListener('change',()=>{ state.mode=el.value; state.hidden.clear(); render(); }));
   $('labels').addEventListener('input',e=>{ const n=e.target.dataset.name; if(n==null) return; state.labels[n]=e.target.value; soon(); });
