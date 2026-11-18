@@ -56,6 +56,9 @@ legend{font-weight:600;padding:0;margin-bottom:8px}
 .opt input{margin:4px 0 0;accent-color:var(--accent)}
 .opt small{grid-column:2;color:var(--muted);font-size:13px;line-height:1.4}
 .formula{font-style:italic;letter-spacing:.01em}
+.opt input.wl{width:5.5em;font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--rule);border-radius:4px;padding:1px 6px;margin:0 2px;font-variant-numeric:tabular-nums}
+#chanTag{display:inline-block;font-size:13px;font-weight:500;color:var(--accent);margin-left:8px}
+#compare:empty{display:none}
 .check{display:flex;gap:10px;align-items:flex-start;margin-top:16px;font-size:14px;cursor:pointer}
 .check input{margin-top:4px;accent-color:var(--accent)}
 details{margin-top:18px;border-top:1px solid var(--rule);padding-top:12px}
@@ -149,6 +152,13 @@ figure{margin:0}
       </fieldset>
 
       <fieldset>
+        <legend>Wavelength</legend>
+        <label class="opt"><input type="radio" name="channel" value="main"><span>Main peak (λ 1)</span><small>The first λ / Abs. pair of each row, e.g. the peak near 210 nm.</small></label>
+        <label class="opt"><input type="radio" name="channel" value="second"><span>Second wavelength: <input id="wl2" class="wl" type="number" step="1" min="190" max="900" aria-label="Second wavelength in nm"> nm</span><small>The λ / Abs. pair within ±25 nm of this wavelength in each row. Rows without it are skipped.</small></label>
+        <p class="hint" id="wlInfo"></p>
+      </fieldset>
+
+      <fieldset>
         <legend>Model</legend>
         <label class="opt"><input type="radio" name="model" value="origin"><span class="formula">y = y∞ (1 − e<sup>−kt</sup>)</span><small>First order, starts at zero. Assumes no dissolved signal before cysteine was added.</small></label>
         <label class="opt"><input type="radio" name="model" value="offset"><span class="formula">y = y₀ + (y∞ − y₀)(1 − e<sup>−kt</sup>)</span><small>First order with a free start value. Needs more time points to be stable.</small></label>
@@ -171,9 +181,14 @@ figure{margin:0}
         <div id="warn"></div>
         <figure><svg id="plot" role="img" viewBox="0 0 720 440"></svg><figcaption id="legend"></figcaption></figure>
         <div class="row" id="exportRow" hidden><button type="button" id="saveSvg">Save plot as SVG</button><button type="button" id="savePng">Save plot as PNG</button><button type="button" id="saveCsv">Save tables as CSV</button></div>
-        <div class="tblhead"><h2>Kinetic parameters</h2><button type="button" id="copyRes">Copy table</button></div>
+        <div class="tblhead"><h2>Kinetic parameters<span id="chanTag"></span></h2><button type="button" id="copyRes">Copy table</button></div>
         <div class="tbl" id="results"></div>
         <p class="note" id="resNote"></p>
+        <div id="compareBox" hidden>
+          <div class="tblhead"><h2>Both wavelengths</h2><button type="button" id="copyCmp">Copy table</button></div>
+          <div class="tbl" id="compare"></div>
+          <p class="note" id="cmpNote"></p>
+        </div>
         <details class="how">
           <summary>How k is calculated</summary>
           <ol>
@@ -196,23 +211,48 @@ figure{margin:0}
 const LN2 = Math.log(2);
 function num(s){ if(s==null) return NaN; s=String(s).trim().replace(',', '.'); if(!/^-?\d*\.?\d+(e-?\d+)?$/i.test(s)) return NaN; return parseFloat(s); }
 
-function parseLine(raw){
-  let name=null, lam=NaN, abs=NaN;
+// Reads one table row into {name, pairs:[[λ, A], ...]}. A NanoDrop export can
+// have several λ / Abs. column pairs (e.g. the peak near 210 nm AND 633 nm).
+// With a header row the columns are assigned by their names; without one the
+// numbers after the name are read as λ, A, λ, A, ... in order.
+function parseHeader(cells){
+  const low=cells.map(c=>c.trim().toLowerCase());
+  const nameIdx=low.findIndex(c=>/^(sample\s*)?name$|^sample( id)?$/.test(c));
+  const lam=[], abs=[];
+  low.forEach((c,i)=>{
+    if(/^(λ|lambda|wl|wavelength)\b|^λ/.test(c)) lam.push(i);
+    else if(/^(abs|a)\b|^abs\./.test(c)) abs.push(i);
+  });
+  if(nameIdx<0 || !abs.length) return null;
+  return {nameIdx, lam, abs};
+}
+function pairsFromNumbers(nums){
+  if(nums.length===1) return [[NaN, nums[0]]];
+  if(nums.length%2) nums=nums.slice(1);          // odd: a leading index number
+  const out=[]; for(let i=0;i+1<nums.length;i+=2) out.push([nums[i], nums[i+1]]);
+  return out;
+}
+function parseLine(raw, head){
+  let name=null, pairs=[];
   if(raw.includes('\t')){
     const cells=raw.split('\t').map(c=>c.trim());
-    let ni=-1;
-    for(let i=0;i<cells.length;i++){ if(/[A-Za-zÄÖÜäöü]/.test(cells[i])){ ni=i; break; } }
-    if(ni<0) return null;
-    name=cells[ni];
-    const nums=cells.slice(ni+1).map(num).filter(v=>!isNaN(v));
-    if(nums.length>=1) abs=nums[nums.length-1];
-    if(nums.length>=2) lam=nums[nums.length-2];
+    if(head && head.nameIdx<cells.length && /[A-Za-zÄÖÜäöü]/.test(cells[head.nameIdx]||'')){
+      name=cells[head.nameIdx];
+      pairs=head.abs.map((ai,k)=>[head.lam[k]!=null? num(cells[head.lam[k]]) : NaN, num(cells[ai])]);
+    } else {
+      let ni=-1;
+      for(let i=0;i<cells.length;i++){ if(/[A-Za-zÄÖÜäöü]/.test(cells[i])){ ni=i; break; } }
+      if(ni<0) return null;
+      name=cells[ni];
+      pairs=pairsFromNumbers(cells.slice(ni+1).map(num).filter(v=>!isNaN(v)));
+    }
   } else {
-    const m=raw.match(/^\s*(?:\d+\s+)?(.*?[A-Za-z\]].*?)\s+(\d+(?:[.,]\d+)?)\s+(-?\d+(?:[.,]\d+)?)\s*$/);
-    if(m){ name=m[1].trim(); lam=num(m[2]); abs=num(m[3]); }
+    const m=raw.match(/^\s*(?:\d+\s+)?(.*?[A-Za-z\]][^\s]*)((?:\s+-?\d+(?:[.,]\d+)?)+)\s*$/);
+    if(m){ name=m[1].trim(); pairs=pairsFromNumbers(m[2].trim().split(/\s+/).map(num)); }
     else { const m2=raw.match(/^\s*(?:\d+\s+)?(.*?)\s*$/); name=m2?m2[1]:raw.trim(); }
   }
-  return {name, lam, abs};
+  const first=pairs[0]||[NaN,NaN];
+  return {name, pairs, lam:first[0], abs:first[1]};
 }
 
 function parseName(name){
@@ -236,20 +276,41 @@ function parseName(name){
 }
 
 function parseText(text){
-  const rows=[];
+  const rows=[]; let head=null;
   text.split(/\r?\n/).forEach((raw, li)=>{
     if(!raw.trim()) return;
-    const p=parseLine(raw); if(!p || !p.name) return;
-    const r={line:li+1, name:p.name, lam:p.lam, abs:p.abs};
+    if(raw.includes('\t')){ const h=parseHeader(raw.split('\t')); if(h){ head=h; rows.push({line:li+1, name:raw.split('\t').map(c=>c.trim()).filter(Boolean).join(' '), status:'skip', note:'header', pairs:[]}); return; } }
+    const p=parseLine(raw, head); if(!p || !p.name) return;
+    const r={line:li+1, name:p.name, lam:p.lam, abs:p.abs, pairs:p.pairs};
     const n=parseName(p.name);
     if(!n){ r.status='skip'; r.note= /(^|\s)name(\s|$)|^#$/i.test(p.name)?'header':'no time point'; rows.push(r); return; }
     Object.assign(r,n);
-    if(isNaN(r.abs)){ r.status='skip'; r.note='no absorbance value'; }
-    else r.status='ok';
+    r.status='ok';
     rows.push(r);
   });
   return rows;
 }
+
+// ---------- wavelength channel ----------
+// main   = the first λ / Abs. pair of a row (the peak NanoDrop reports first)
+// second = the pair whose λ is within WL_TOL nm of the chosen wavelength
+const WL_TOL=25;
+function pickPair(r, ch, wl2){
+  const ps=r.pairs||[];
+  if(ch==='main'){ const p=ps[0]; return p&&isFinite(p[1])? {lam:p[0], abs:p[1]} : null; }
+  let best=null;
+  ps.forEach(p=>{ const d=Math.abs(p[0]-wl2); if(isFinite(p[1]) && d<=WL_TOL && (!best||d<best.d)) best={d, lam:p[0], abs:p[1]}; });
+  return best;
+}
+function rowsFor(rows, ch, wl2){
+  return rows.map(r=>{
+    if(r.status!=='ok') return r;
+    const v=pickPair(r, ch, wl2);
+    if(!v) return {...r, status:'skip', note: ch==='main'? 'no absorbance value' : `no value near ${wl2} nm`};
+    return {...r, lam:v.lam, abs:v.abs};
+  });
+}
+const hasSecond=(rows, wl2)=>rows.some(r=>r.status==='ok' && pickPair(r,'second',wl2));
 
 // ---------- dataset ----------
 // Repeated rows with the same name are technical replicates: they are averaged.
@@ -399,27 +460,30 @@ const EXAMPLE=`#\tName\tλ 1\tAbs. 1
 27\tBench t4 [20min] all Nb_2\t210\t11.05
 28\tBench t4 [20min] all Nb_3\t210\t12.82`;
 
-const state={signal:'fracAll', model:'origin', showAll:false, cond:null, hidden:new Set(), mode:'reps', labels:{}};
+const state={signal:'fracAll', model:'origin', showAll:false, cond:null, hidden:new Set(), mode:'reps', labels:{}, channel:'main', wl2:633};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const color=i=>`var(--s${(i%8)+1})`;
 const isLocal = location.protocol==='file:' || ['localhost','127.0.0.1','::1'].includes(location.hostname);
-let lastTables={results:'',data:''};
+let lastTables={results:'',data:'',compare:''};
 
 function load(){
   try{ const s=JSON.parse(localStorage.getItem(KEY)||'null');
-    if(s){ $('raw').value=s.raw||''; for(const k of ['signal','model','mode']) if(s[k]) state[k]=s[k]; state.showAll=!!s.showAll; state.labels=s.labels||{}; } }catch(e){}
+    if(s){ $('raw').value=s.raw||''; for(const k of ['signal','model','mode','channel']) if(s[k]) state[k]=s[k]; state.showAll=!!s.showAll; state.labels=s.labels||{}; if(isFinite(+s.wl2)&&+s.wl2>0) state.wl2=+s.wl2; } }catch(e){}
   if(!$('raw').value.trim()) $('raw').value=EXAMPLE;
   document.querySelector(`input[name=signal][value=${state.signal}]`).checked=true;
   document.querySelector(`input[name=model][value=${state.model}]`).checked=true;
   document.querySelector(`input[name=mode][value=${state.mode}]`).checked=true;
+  document.querySelector(`input[name=channel][value=${state.channel}]`).checked=true;
+  $('wl2').value=state.wl2;
   $('showAll').checked=state.showAll;
 }
-function save(){ try{ localStorage.setItem(KEY, JSON.stringify({raw:$('raw').value, signal:state.signal, model:state.model, mode:state.mode, showAll:state.showAll, labels:state.labels})); }catch(e){} }
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify({raw:$('raw').value, signal:state.signal, model:state.model, mode:state.mode, showAll:state.showAll, labels:state.labels, channel:state.channel, wl2:state.wl2})); }catch(e){} }
 
 const isPct=()=>state.signal!=='raw';
 function yLabel(rows){
-  if(state.signal==='fracAll') return 'Dissolved (%, sup ÷ all at the same time)';
-  if(state.signal==='fracT0') return 'Dissolved (%, sup ÷ total at t0)';
+  const at= (state.channel==='second' && rows.some(r=>r.status==='ok' && r.pairs && r.pairs.length>1))? `, ${state.wl2} nm` : '';
+  if(state.signal==='fracAll') return `Dissolved (%, sup ÷ all at the same time${at})`;
+  if(state.signal==='fracT0') return `Dissolved (%, sup ÷ total at t0${at})`;
   const l=rows.filter(r=>r.status==='ok'&&r.role==='sup'&&isFinite(r.lam)).map(r=>r.lam);
   return l.length? `Supernatant absorbance at peak (${Math.min(...l)}–${Math.max(...l)} nm)` : 'Supernatant absorbance';
 }
@@ -428,14 +492,75 @@ const fsd=v=>isPct()?fmtNum(v,1):fmtNum(v,3);
 
 function render(){
   save();
-  const rows=parseText($('raw').value);
-  renderParsed(rows);
+  const all=parseText($('raw').value);
+  const second=hasSecond(all, state.wl2);
+  const nSecond=all.filter(r=>r.status==='ok' && pickPair(r,'second',state.wl2)).length, nOk=all.filter(r=>r.status==='ok').length;
+  $('wlInfo').textContent = nOk? (second? `${nSecond} of ${nOk} samples have a value near ${state.wl2} nm.` : `No column near ${state.wl2} nm in the pasted table - only the main peak can be analysed.`) : '';
+  // no values at the second wavelength in this table: show the main peak
+  const ch = second? state.channel : 'main';
+  const rows=rowsFor(all, ch, state.wl2);
+  renderParsed(rows, all);
+  $('chanTag').textContent = second? `at ${ch==='main'? 'the main peak' : state.wl2+' nm'}` : '';
+  renderCompare(all, second);
   const ds=buildDataset(rows,state.signal);
   renderLabels(ds);
   const hasData = ds.conds.some(c=>c.reps.some(r=>r.points.length));
   $('out').classList.toggle('is-empty',!hasData);
   if(!hasData) return;
   if(state.mode==='samples') renderSamples(ds, rows); else renderReps(ds, rows);
+}
+
+// ----- both wavelengths side by side (same signal, model and mode) -----
+function fitsFor(all, ch){
+  const ds=buildDataset(rowsFor(all, ch, state.wl2), state.signal);
+  const out=new Map();      // key -> {label, fits:[...]} (replicates mode: one key per condition)
+  ds.conds.forEach(c=>c.reps.forEach(r=>{
+    if(!r.points.length) return;
+    if(state.mode==='samples'){
+      const key='S|'+c.name+'|'+r.name; if(state.hidden.has(key)) return;
+      const label=(ds.conds.length>1? c.name+' ' : '')+((state.labels[r.name]||'').trim()||r.name);
+      out.set(key,{label, fits:[fitFirstOrder(r.points,state.model)]});
+    } else {
+      if(state.hidden.has(c.name+'|'+r.name)) return;
+      if(!out.has(c.name)) out.set(c.name,{label:c.name, fits:[]});
+      out.get(c.name).fits.push(fitFirstOrder(r.points,state.model));
+    }
+  }));
+  return out;
+}
+function summarize(entry){
+  const ok=(entry? entry.fits : []).filter(f=>f.ok);
+  if(!ok.length) return null;
+  const col=k=>ok.map(f=>f[k]);
+  return {n:ok.length, k:[mean(col('k')), sd(col('k'))], t:[mean(col('thalf')), sd(col('thalf'))], y:[mean(col('yinf')), sd(col('yinf'))]};
+}
+function renderCompare(all, second){
+  const box=$('compareBox');
+  if(!second){ box.hidden=true; lastTables.compare=''; return; }
+  box.hidden=false;
+  const A=fitsFor(all,'main'), B=fitsFor(all,'second');
+  const keys=[...new Set([...A.keys(), ...B.keys()])];
+  const pct=isPct(), uy=pct?'%':'A', dy=pct?1:3;
+  const lamMain=all.filter(r=>r.status==='ok'&&r.pairs&&r.pairs[0]&&isFinite(r.pairs[0][0])).map(r=>r.pairs[0][0]);
+  const mainLbl= lamMain.length? `main peak (${Math.min(...lamMain)}–${Math.max(...lamMain)} nm)` : 'main peak';
+  const wLbl=`${state.wl2} nm`;
+  const reps=state.mode!=='samples';
+  const head=[reps?'Condition':'Sample', reps?'n':'', 'k main', `k ${wLbl}`, 't½ main', `t½ ${wLbl}`, 'Plateau main', `Plateau ${wLbl}`].filter((h,i)=>reps||i!==1);
+  const cell=(s,i,d)=> !s? '–' : (reps && isFinite(s[i][1]))? `${fmtNum(s[i][0],d)} ± ${fmtNum(s[i][1],d)}` : fmtNum(s[i][0],d);
+  const rowsC=keys.map(k=>{
+    const a=summarize(A.get(k)), b=summarize(B.get(k));
+    const label=(A.get(k)||B.get(k)).label;
+    const nn= a&&b? (a.n===b.n? String(a.n) : `${a.n} / ${b.n}`) : String((a||b||{n:0}).n);
+    const cells=[label, nn, cell(a,'k',3), cell(b,'k',3), cell(a,'t',2), cell(b,'t',2), cell(a,'y',dy), cell(b,'y',dy)];
+    return {cells: reps? cells : cells.filter((c,i)=>i!==1)};
+  });
+  writeTable('compare',[{caption:null, head, rows:rowsC}]);
+  $('cmpNote').textContent = `main = ${mainLbl}. k in min⁻¹, t½ in min, plateau in ${uy}. `
+    + (reps
+    ? 'Mean ± SD over the replicates, each fitted on its own at each wavelength'
+    : 'One fit per sample at each wavelength')
+    + ` (same signal "${state.signal==='fracAll'?'sup ÷ all':state.signal==='fracT0'?'sup ÷ t0':'raw absorbance'}" and model). `
+    + 'Similar k at both wavelengths means both absorbers are released together; a clearly different k means two processes.';
 }
 
 // ----- mode: replicates of one condition -----
@@ -595,12 +720,15 @@ function renderCondBar(names){
 }
 function renderWarnings(w){ $('warn').innerHTML = w.length? `<ul>${w.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>` : ''; }
 
-function renderParsed(rows){
+function renderParsed(rows, all){
   const ok=rows.filter(r=>r.status==='ok').length;
   $('parsedCount').textContent=`${ok} of ${rows.length} rows used`;
+  const second=hasSecond(all||rows, state.wl2);
   const role=r=> r.status!=='ok'? `<span class="skip">skipped, ${esc(r.note)}</span>` : r.role==='sup'? (r.typo?'sup (written “sub”)':'sup') : r.role==='all'?'all' : 'total (unlabelled)';
-  $('parsed').innerHTML=`<table><thead><tr><th>Name</th><th>Read as</th><th class="n">t (min)</th><th>Sample</th><th class="n">Abs</th></tr></thead><tbody>${
-    rows.map(r=>`<tr class="${r.status!=='ok'?'muted':''}"><td>${esc(r.name)}</td><td>${role(r)}</td><td class="n">${r.status==='ok'?fmtT(r.time):''}</td><td>${r.status==='ok'?esc(r.rep):''}</td><td class="n">${isFinite(r.abs)?r.abs:''}</td></tr>`).join('')
+  const vals=r=>{ const a=pickPair(r,'main'), b=second? pickPair(r,'second',state.wl2) : null;
+    return `<td class="n">${a?a.abs:''}</td>`+(second?`<td class="n">${b?b.abs:''}</td>`:''); };
+  $('parsed').innerHTML=`<table><thead><tr><th>Name</th><th>Read as</th><th class="n">t (min)</th><th>Sample</th><th class="n">Abs main</th>${second?`<th class="n">Abs ${state.wl2} nm</th>`:''}</tr></thead><tbody>${
+    rows.map(r=>`<tr class="${r.status!=='ok'?'muted':''}"><td>${esc(r.name)}</td><td>${role(r)}</td><td class="n">${r.status==='ok'?fmtT(r.time):''}</td><td>${r.status==='ok'?esc(r.rep):''}</td>${vals(r)}</tr>`).join('')
   }</tbody></table>`;
 }
 
@@ -672,7 +800,7 @@ function savePng(){
 }
 function saveCsv(){
   const toCsv=t=>t.split('\n').map(l=>l.split('\t').map(c=>/[;",]/.test(c)?`"${c.replace(/"/g,'""')}"`:c).join(';')).join('\n');
-  download(new Blob(['\ufeff'+toCsv(lastTables.results)+'\n\n'+toCsv(lastTables.data)],{type:'text/csv'}),'dissolution-kinetics.csv');
+  download(new Blob(['\ufeff'+toCsv(lastTables.results)+'\n\n'+toCsv(lastTables.data)+(lastTables.compare?'\n\n'+toCsv(lastTables.compare):'')],{type:'text/csv'}),'dissolution-kinetics.csv');
 }
 
 async function copyText(txt, btn){
@@ -691,6 +819,9 @@ function init(){
   $('raw').addEventListener('input',soon);
   document.querySelectorAll('input[name=signal]').forEach(el=>el.addEventListener('change',()=>{ state.signal=el.value; render(); }));
   document.querySelectorAll('input[name=model]').forEach(el=>el.addEventListener('change',()=>{ state.model=el.value; render(); }));
+  document.querySelectorAll('input[name=channel]').forEach(el=>el.addEventListener('change',()=>{ state.channel=el.value; render(); }));
+  $('wl2').addEventListener('input',e=>{ const v=parseFloat(e.target.value); if(isFinite(v)&&v>0){ state.wl2=v; soon(); } });
+  $('wl2').addEventListener('focus',()=>{ if(state.channel!=='second'){ state.channel='second'; document.querySelector('input[name=channel][value=second]').checked=true; render(); } });
   document.querySelectorAll('input[name=mode]').forEach(el=>el.addEventListener('change',()=>{ state.mode=el.value; state.hidden.clear(); render(); }));
   $('labels').addEventListener('input',e=>{ const n=e.target.dataset.name; if(n==null) return; state.labels[n]=e.target.value; soon(); });
   $('showAll').addEventListener('change',e=>{ state.showAll=e.target.checked; render(); });
@@ -700,6 +831,7 @@ function init(){
   $('legend').addEventListener('click',e=>{ const b=e.target.closest('button[data-key]'); if(!b) return; const k=b.dataset.key; state.hidden.has(k)?state.hidden.delete(k):state.hidden.add(k); render(); });
   $('copyRes').addEventListener('click',e=>copyText(lastTables.results,e.currentTarget));
   $('copyData').addEventListener('click',e=>copyText(lastTables.data,e.currentTarget));
+  $('copyCmp').addEventListener('click',e=>copyText(lastTables.compare||'',e.currentTarget));
   if(isLocal){ $('exportRow').hidden=false;
     $('saveSvg').addEventListener('click',()=>download(new Blob([exportSvgString()],{type:'image/svg+xml'}),'dissolution-kinetics.svg'));
     $('savePng').addEventListener('click',savePng);

@@ -38,6 +38,20 @@ measurements of the same tube. They are averaged first:
 
   x̄ = (1/n) Σ xᵢ  s = √( Σ (xᵢ − x̄)² / (n − 1) )
 
+**Several wavelengths.** A NanoDrop row can hold several λ / Abs. column
+pairs (e.g. the peak near 210 nm and 633 nm). With a header row the pairs are
+taken by their column names (λ 1 / Abs. 1, λ 2 / Abs. 2, …); without one,
+the numbers after the name are read as λ, A, λ, A, … in order.
+
+- **Main peak** = the first pair of each row (λ 1, the peak the NanoDrop
+  reports first; ≈ 210–216 nm in the example).
+- **Second wavelength** (default **633 nm**, adjustable) = the pair whose λ
+  is closest to that value, within ±25 nm. Rows without such a pair are
+  skipped for this wavelength.
+
+Everything below (signals, fit, errors) is done in exactly the same way for
+the chosen wavelength.
+
 ## 3. From absorbance to the signal that is fitted
 
 For replicate *r* at time *t*, with A_sup, A_all the averaged absorbances:
@@ -183,6 +197,19 @@ reflect measurement noise, not independent syntheses.
 Note: the mean of t½ over replicates is not exactly ln 2 / (mean k), because
 t½ is not linear in k; both are shown, the difference is small when the
 replicates agree.
+
+## 8b. Both wavelengths side by side
+
+When the table has values at the second wavelength, the table **Both
+wavelengths** fits every replicate (or sample) at both wavelengths with the
+same signal and model and lists k, t½ and plateau next to each other: mean ±
+SD over the replicates (replicates mode) or one fit per sample (samples
+mode). Replicates left out in the legend are left out here too.
+
+Interpretation: if both absorbing species leave the particle by the same
+first-order process, k is the same at both wavelengths (within the SD). A
+clearly different k means two processes, e.g. a dye released faster than the
+framework dissolves.
 
 ## 9. Worked example (the app's example data)
 
