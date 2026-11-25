@@ -151,7 +151,7 @@ figure{margin:0}
 
       <fieldset>
         <legend>Signal to fit</legend>
-        <label class="opt"><input type="radio" name="signal" value="fracAll"><span>% dissolved, sup ÷ all</span><small>Each supernatant divided by the whole suspension of the same replicate at the same time.</small></label>
+        <label class="opt"><input type="radio" name="signal" value="fracAll"><span>% dissolved, sup ÷ all</span><small>Each supernatant divided by the whole suspension of the same replicate at the same time. One “all” per replicate is enough: time points without their own use the mean of that replicate’s “all” samples.</small></label>
         <label class="opt"><input type="radio" name="signal" value="fracT0"><span>% dissolved, sup ÷ t0</span><small>Each supernatant divided by that replicate’s t0 sample.</small></label>
         <label class="opt"><input type="radio" name="signal" value="raw"><span>Raw absorbance of sup</span><small>No normalisation.</small></label>
       </fieldset>
@@ -394,7 +394,7 @@ function buildDataset(rows, signal){
     const t=[...tm.keys()].sort((a,b)=>a-b).find(t=>totalIn(tm,t)!=null);
     if(t!=null) t0Of.set(cname+'|'+rname, {cond:cname, st:totalIn(tm,t)});
   }
-  const conds=[];
+  const conds=[], notes=[];
   for(const [cname,rm] of cmap){
     const reps=[];
     for(const [rname,tm] of rm){
@@ -409,7 +409,12 @@ function buildDataset(rows, signal){
         if(others.length===1){ t0Den=others[0].st;
           warnings.push(`${cname} ${rname}: no t0 of its own - the t0 total of “${others[0].cond}” ${rname} was used. Measure a t0 per condition if the stocks differ.`); }
       }
-      const noAll=[];
+      const noAll=[], shared=[];
+      // every "all" (or unlabelled total) of this replicate, for time points
+      // without their own: the suspension holds the same total all the time
+      const pooledVals=[]; for(const t of times){ const s=tm.get(t); const v=(s.all&&s.all.length)? s.all : s.unl; if(v) pooledVals.push(...v); }
+      const pooled=stats(pooledVals);
+      const pooledTimes=times.filter(t=>totalOf(t)!=null);
       const points=[];
       for(const t of times){
         const sup=stats(tm.get(t).sup);
@@ -418,19 +423,31 @@ function buildDataset(rows, signal){
         const rel=(st)=> st.n>1? st.s/st.m : 0;
         if(signal==='raw'){ y=sup.m; sdT=sup.s; }
         else {
-          if(signal==='fracAll'){ den=totalOf(t); if(!den){ noAll.push(t); continue; } }
+          if(signal==='fracAll'){ den=totalOf(t);
+            // the shared "all" is a fixed reference here: its spread over time
+            // is not a repeat measurement of this time point, so no error bar
+            if(!den && pooled){ den={m:pooled.m, s:0, n:1}; shared.push(t); }
+            if(!den){ noAll.push(t); continue; } }
           else { if(t0Den==null){ warnings.push(`${cname} ${rname}: no t0 total found, so this sample was left out.`); break; } den=t0Den; }
           y=100*sup.m/den.m;
           sdT = (sup.n>1||den.n>1)? Math.abs(y)*Math.sqrt(rel(sup)**2+rel(den)**2) : NaN;
         }
         points.push({t, y, sdT, nT:sup.n, sup:sup.m, den:den?den.m:null});
       }
-      if(noAll.length) warnings.push(`${cname} ${rname}: ${noAll.length} time point${noAll.length>1?'s':''} without an “all” sample left out (${noAll.map(fmtT).join(', ')} min).`);
+      if(noAll.length) warnings.push(`${cname} ${rname}: no “all” sample at all - ${noAll.length} time point${noAll.length>1?'s':''} left out (${noAll.map(fmtT).join(', ')} min). Measure “all” at least once for this replicate.`);
+      if(shared.length) notes.push({cond:cname, rep:rname, times:shared, from:pooledTimes, n:pooled.n});
       const allPts = times.filter(t=>totalOf(t)!=null).map(t=>({t, y: totalOf(t).m}));
       reps.push({name:rname, points, allPts});
     }
     reps.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
     conds.push({name:cname, reps});
+  }
+  if(notes.length){
+    // one line instead of one per replicate when they all look alike
+    const same=notes.every(x=>x.times.join()===notes[0].times.join() && x.from.join()===notes[0].from.join());
+    const reps=notes.map(x=>`${x.cond? x.cond+' ' : ''}${x.rep}`.trim());
+    if(same) warnings.unshift(`“all” measured at ${notes[0].from.map(fmtT).join(', ')} min only: for ${notes[0].times.map(fmtT).join(', ')} min each replicate is divided by the mean of its own “all” samples (${reps.length>4? reps.length+' replicates' : reps.join(', ')}).`);
+    else notes.forEach(x=>warnings.unshift(`${x.cond? x.cond+' ' : ''}${x.rep}: ${x.times.map(fmtT).join(', ')} min divided by the mean of its “all” at ${x.from.map(fmtT).join(', ')} min (n = ${x.n}).`));
   }
   return {conds, warnings:[...new Set(warnings)], maxTech};
 }
@@ -557,7 +574,7 @@ const isPct=()=>state.signal!=='raw';
 let curCh='main';     // the wavelength channel actually shown
 function yLabel(rows){
   const at= curCh==='second'? `, ${state.wl2} nm` : '';
-  if(state.signal==='fracAll') return `Dissolved (%, sup ÷ all at the same time${at})`;
+  if(state.signal==='fracAll') return `Dissolved (%, sup ÷ all${at})`;
   if(state.signal==='fracT0') return `Dissolved (%, sup ÷ total at t0${at})`;
   if(rows.spectrum || rows.some(r=>r.spec)){
     const ch2 = curCh==='second';
@@ -588,12 +605,6 @@ function render(){
   $('chanTag').textContent = second? `at ${ch==='main'? 'the main peak' : state.wl2+' nm'}` : '';
   renderCompare(all, second);
   const ds=buildDataset(rows,state.signal);
-  if(state.signal==='fracAll'){
-    const ok=rows.filter(r=>r.status==='ok');
-    const allT=new Set(ok.filter(r=>r.role==='all').map(r=>r.time)), supT=new Set(ok.filter(r=>r.role==='sup').map(r=>r.time));
-    const missing=[...supT].filter(t=>!allT.has(t)).length;
-    if(missing && missing>=supT.size/2) ds.warnings.unshift(`Most time points have no “all” sample (only ${[...allT].map(fmtT).join(', ')||'none'} min). Choose “% dissolved, sup ÷ t0” under Signal to fit.`);
-  }
   renderLabels(ds);
   const hasData = ds.conds.some(c=>c.reps.some(r=>r.points.length));
   $('out').classList.toggle('is-empty',!hasData);

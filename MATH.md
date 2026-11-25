@@ -90,6 +90,21 @@ differences, evaporation or slightly different particle amounts per replicate
 cancel. The total at each time is the `all` sample; if there is none, an
 unlabelled sample at that time is used.
 
+**One “all” per replicate is enough.** The whole suspension holds the same
+total amount at every time point - only how much of it is dissolved changes.
+A time point without its own “all” is therefore divided by the mean of all
+“all” samples of the same replicate (one, or several at different times):
+
+  y(t) = 100 · A_sup(t) / mean(A_all of replicate r, over the times it was measured)
+
+For the technical error bars this shared “all” counts as a fixed reference:
+its spread between time points is not a repeat measurement of the time
+point, so only repeats of the supernatant give an error bar there.
+When an “all” was measured at the same time point it is still used for that
+time point (it also absorbs pipetting differences of that tube). The note
+above the results lists which time points used the shared “all”. A replicate
+with no “all” at all is left out with a warning.
+
 **b) % dissolved, sup ÷ t0**
 
   y(t) = 100 · A_sup(t) / A_total(t₀)
