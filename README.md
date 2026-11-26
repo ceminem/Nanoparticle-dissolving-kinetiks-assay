@@ -27,7 +27,11 @@ right-click the `.bat` → *Send to → Desktop*.
    - a **time point**: `t1 [5min]` (also `[0.5h]`, `[30s]`),
    - the **fraction**: `sup` (supernatant = dissolved) or `all` (whole
      suspension = total); a t0 sample needs neither,
-   - a **replicate**: `Nb_1`, `sample-1` … (letters + number at the end)
+   - a **replicate**: `Nb_1`, `sample-1`, `sample 1` … (letters + number;
+     the last such pair in the name)
+
+   The parts may come in any order: `sample 1 sup t0` and `t0 sup sample-1`
+   are read the same way.
    - The rest of the name is the condition, wherever it stands
      (`Bench t1 [5min] sup Nb_1` → Bench, `t1 [5min] sup 20 mM sample-1` → 20 mM).
    - If only t0 has an `all` sample, choose **% dissolved, sup ÷ t0**.

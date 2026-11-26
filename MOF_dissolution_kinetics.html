@@ -136,7 +136,7 @@ figure{margin:0}
     <div class="panel">
       <label class="lab" for="raw">NanoDrop table</label>
       <textarea id="raw" spellcheck="false" placeholder="Paste a NanoDrop table: either the peak table (one row per sample) or the spectrum export (Wavelength (nm) + one column per sample)."></textarea>
-      <p class="hint">Names need a time point like “t1 [5min]”, the fraction “sup” or “all”, and a replicate like “Nb_1” or “sample-1”; the rest of the name (e.g. “20 mM”) is the condition. Samples without a time point, such as blanks, are skipped.</p>
+      <p class="hint">Names need a time point like “t1 [5min]” or “t0”, the fraction “sup” or “all”, and a replicate like “Nb_1”, “sample-1” or “sample 1”, in any order (“sample 1 sup t0” works too); the rest of the name (e.g. “20 mM”) is the condition. Samples without a time point, such as blanks, are skipped.</p>
       <div class="row"><button type="button" id="example">Load example</button><button type="button" id="clear">Clear</button></div>
 
       <fieldset>
@@ -273,21 +273,25 @@ function parseName(name){
   let mm = name.match(/[\[(]\s*(\d+(?:[.,]\d+)?)\s*(min|m|h|s|sec)?\s*[\])]/i) || name.match(/(\d+(?:[.,]\d+)?)\s*(min|h|sec|s)\b/i);
   if(mm){ time=num(mm[1]); const u=(mm[2]||'min').toLowerCase(); if(u==='h') time*=60; else if(u==='s'||u==='sec') time/=60; }
   else { time=tIdx; timeFromIndex = tIdx>0; }   // "t0" without brackets is 0 min anyway
-  const rest = name.slice(tM.index + tM[0].length);
+  // Fraction, replicate and condition may stand anywhere in the name, before
+  // or after the time point: "t0 sup sample-1", "sample 1 sup t0",
+  // "Bench t1 [5min] sup Nb_1" all work. The time tokens are taken out first.
+  let s2 = (' '+name+' ').replace(tM[0], ' ');
+  if(mm) s2 = s2.replace(mm[0], ' ');
   let role='unlabelled', typo=false;
-  const sm = rest.match(/(?:^|[\s_\-\]])(sup|sub|supernatant|überstand|ueberstand)(?=$|[\s_\-])/i);
-  if(sm){ role='sup'; if(sm[1].toLowerCase()==='sub') typo=true; }
-  else if(/(?:^|[\s_\-\]])(all|total|tot)(?=$|[\s_\-])/i.test(rest)) role='all';
-  let rep='Rep_1';
-  const rm = rest.match(/([A-Za-z]+)[ _\-]?(\d+)\s*$/);
-  if(rm) rep = rm[1]+'_'+rm[2];
-  // The condition is the rest of the name, wherever it stands: "Bench t1 [5min]
-  // sup Nb_1" -> Bench, "t1 [5min] sup 20 mM sample-1" -> 20 mM.
-  let c = name.replace(tM[0], ' ');
-  if(mm) c = c.replace(mm[0], ' ');
-  if(rm) c = c.replace(new RegExp(rm[0].replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$'), ' ');
-  c = c.replace(/(^|[\s_\-\]])(sup|sub|supernatant|überstand|ueberstand|all|total|tot)(?=$|[\s_\-])/ig, ' ');
-  const cond = c.replace(/[\s_\-]+/g,' ').trim() || 'Sample';
+  const ROLE_SUP=/(^|[\s_\-\]])(sup|sub|supernatant|überstand|ueberstand)(?=$|[\s_\-\[(])/i;
+  const ROLE_ALL=/(^|[\s_\-\]])(all|total|tot)(?=$|[\s_\-\[(])/i;
+  const sm = s2.match(ROLE_SUP);
+  if(sm){ role='sup'; if(sm[2].toLowerCase()==='sub') typo=true; }
+  else if(ROLE_ALL.test(s2)) role='all';
+  s2 = s2.replace(new RegExp(ROLE_SUP.source,'ig'), ' ').replace(new RegExp(ROLE_ALL.source,'ig'), ' ');
+  // replicate: a word followed by a number ("Nb_1", "sample-1", "sample 1"),
+  // the LAST such pair in the name; "20 mM" (number first) is not one
+  let rep='Rep_1', rm=null;
+  for(const m of s2.matchAll(/(^|[\s_\-\]])([A-Za-z]+)[ _\-]?(\d+)(?=$|[\s_\-\[(])/g)) rm=m;
+  if(rm){ rep = rm[2]+'_'+rm[3]; s2 = s2.slice(0, rm.index) + ' ' + s2.slice(rm.index + rm[0].length); }
+  // the condition is whatever is left: "Bench", "20 mM", ...
+  const cond = s2.replace(/[\s_\-]+/g,' ').trim() || 'Sample';
   return {cond, tIdx, time, timeFromIndex, role, typo, rep};
 }
 
