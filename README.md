@@ -34,7 +34,8 @@ right-click the `.bat` → *Send to → Desktop*.
    are read the same way.
    - The rest of the name is the condition, wherever it stands
      (`Bench t1 [5min] sup Nb_1` → Bench, `t1 [5min] sup 20 mM sample-1` → 20 mM).
-   - If only t0 has an `all` sample, choose **% dissolved, sup ÷ t0**.
+   - One `all` per replicate is enough (at any time point): time points
+     without their own use the mean of that replicate's `all` samples.
    Rows without a time point (blanks) are skipped; *Recognised samples* shows
    how every row was read.
    If the table has a second wavelength (columns λ 2 / Abs. 2, e.g. 633 nm),
