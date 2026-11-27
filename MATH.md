@@ -77,6 +77,27 @@ the numbers after the name are read as λ, A, λ, A, … in order.
 Everything below (signals, fit, errors) is done in exactly the same way for
 the chosen wavelength.
 
+### Several exports (e.g. day 1 and day 2)
+
+Every loaded file (and a pasted table) is read on its own and the samples are
+then pooled, as if they had been in one export. Samples are matched only by
+their names, so the same sample must have the same name on both days
+(`Sample-1 sup t1 [94min]`, `Sample-1 sup t2 [1080min]`). A name that occurs in
+two files is a repeat measurement of the same sample (technical replicate).
+A number standing alone in a name (e.g. a stray `… [1080min] 1`) is ignored,
+so it does not split one sample into two.
+
+### Detector limit
+
+The NanoDrop reports at most a fixed absorbance (here 40); above it the
+spectrum is cut flat. A spectrum counts as cut when its top value occurs
+exactly on 3 or more wavelengths of the range, or 5 or more values lie within
+0.1 % of it (values jittering at the limit). A real peak top has at most 2-3
+such values. Such samples are named in a warning: their true absorbance is
+higher, so an `all` sample at the limit makes “% dissolved” of that replicate
+too high. Dilute them before measuring (and enter the dilution in the
+NanoDrop) or use a range where they stay below the limit.
+
 ## 3. From absorbance to the signal that is fitted
 
 For replicate *r* at time *t*, with A_sup, A_all the averaged absorbances:

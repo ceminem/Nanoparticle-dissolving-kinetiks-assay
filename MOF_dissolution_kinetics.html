@@ -46,6 +46,17 @@ h2{font-size:16px;font-weight:600;margin:0}
 textarea{width:100%;min-height:220px;resize:vertical;font:13px/1.45 "IBM Plex Sans",system-ui,sans-serif;font-variant-numeric:tabular-nums;color:var(--ink);background:var(--bg);border:1px solid var(--rule);border-radius:4px;padding:10px;tab-size:16;white-space:pre;overflow:auto}
 .hint{color:var(--muted);font-size:13px;margin:8px 0 0}
 .row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.drop{border:1.5px dashed var(--rule);border-radius:6px;padding:10px 12px;margin-bottom:10px;background:var(--bg)}
+.drop.over{border-color:var(--accent);background:var(--surface)}
+.drop .row{margin-top:0;align-items:center}
+.drop .hint{margin:0}
+.files{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
+.files li{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:8px;font-size:13px;background:var(--surface);border:1px solid var(--rule);border-radius:4px;padding:5px 8px}
+.files li b{font-weight:600;overflow-wrap:anywhere;min-width:0}
+.files li .m{color:var(--muted);grid-column:1;font-size:12.5px}
+.files li button{grid-column:2;grid-row:1 / span 2;align-self:center;border:0;background:transparent;color:var(--muted);font-size:17px;line-height:1;padding:0 2px;cursor:pointer}
+.files li button:hover{color:var(--bad,#B42318)}
+.files li.err{border-color:var(--bad,#B42318)}
 button{font:inherit;font-size:14px;color:var(--ink);background:var(--surface);border:1px solid var(--rule);border-radius:4px;padding:6px 12px;cursor:pointer}
 button:hover{border-color:var(--muted)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -129,15 +140,20 @@ figure{margin:0}
 <div class="wrap">
 <header>
   <h1>MOF dissolution kinetics</h1>
-  <p class="lede">Paste a NanoDrop table. Supernatant samples are matched by replicate across time points and fitted to first-order dissolution.</p>
+  <p class="lede">Load the NanoDrop exports (one or several days) or paste a table. Supernatant samples are matched by replicate across time points and fitted to first-order dissolution.</p>
 </header>
 <main class="grid">
   <section>
     <div class="panel">
-      <label class="lab" for="raw">NanoDrop table</label>
+      <span class="lab">NanoDrop data</span>
+      <div class="drop" id="drop">
+        <div class="row"><button type="button" id="loadFiles">Load files…</button><input type="file" id="fileIn" multiple accept=".xlsx,.csv,.tsv,.txt,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden><span class="hint">or drop the NanoDrop exports here (.xlsx, .csv, .txt) - several at once, e.g. day 1 and day 2.</span></div>
+        <ul class="files" id="files"></ul>
+      </div>
+      <label class="lab" for="raw" style="font-weight:500;font-size:13.5px">… or paste a table</label>
       <textarea id="raw" spellcheck="false" placeholder="Paste a NanoDrop table: either the peak table (one row per sample) or the spectrum export (Wavelength (nm) + one column per sample)."></textarea>
       <p class="hint">Names need a time point like “t1 [5min]” or “t0”, the fraction “sup” or “all”, and a replicate like “Nb_1”, “sample-1” or “sample 1”, in any order (“sample 1 sup t0” works too); the rest of the name (e.g. “20 mM”) is the condition. Samples without a time point, such as blanks, are skipped.</p>
-      <div class="row"><button type="button" id="example">Load example</button><button type="button" id="clear">Clear</button></div>
+      <div class="row"><button type="button" id="example">Load example</button><button type="button" id="clear">Clear all</button></div>
 
       <fieldset>
         <legend>Nb_1, Nb_2, Nb_3 … are</legend>
@@ -290,8 +306,10 @@ function parseName(name){
   let rep='Rep_1', rm=null;
   for(const m of s2.matchAll(/(^|[\s_\-\]])([A-Za-z]+)[ _\-]?(\d+)(?=$|[\s_\-\[(])/g)) rm=m;
   if(rm){ rep = rm[2]+'_'+rm[3]; s2 = s2.slice(0, rm.index) + ' ' + s2.slice(rm.index + rm[0].length); }
-  // the condition is whatever is left: "Bench", "20 mM", ...
-  const cond = s2.replace(/[\s_\-]+/g,' ').trim() || 'Sample';
+  // the condition is whatever is left: "Bench", "20 mM", ... A number standing
+  // alone (e.g. a stray " 1" after the time) is not a condition - it would
+  // split one sample into two series - and is dropped.
+  const cond = s2.replace(/[\s_\-]+/g,' ').trim().split(' ').filter(w=>!/^\d+$/.test(w)).join(' ') || 'Sample';
   return {cond, tIdx, time, timeFromIndex, role, typo, rep};
 }
 
@@ -317,6 +335,120 @@ function parseSpectrum(lines, hi){
   });
   rows.spectrum={wlMin:Math.min(...wl), wlMax:Math.max(...wl), n:wl.length};
   return rows;
+}
+
+// ---------- loaded files ----------
+// Exports loaded with "Load files" / drag and drop are kept as text (the
+// spectrum or peak table they contain) and combined with any pasted table, so
+// a two-day measurement in two exports is read as one data set.
+let FILES=[];   // [{name, date, kind, text, n, error}]
+function allRows(){
+  const sources=[];
+  FILES.forEach(f=>{ if(f.text) sources.push({src:f.name, text:f.text}); });
+  if($('raw').value.trim()) sources.push({src: FILES.length? 'pasted' : '', text:$('raw').value});
+  const out=[]; let spec=null;
+  sources.forEach(sv=>{ const rows=parseText(sv.text);
+    rows.forEach(r=>{ r.src=sv.src; out.push(r); });
+    if(rows.spectrum) spec= spec? {wlMin:Math.min(spec.wlMin,rows.spectrum.wlMin), wlMax:Math.max(spec.wlMax,rows.spectrum.wlMax), n:Math.max(spec.n,rows.spectrum.n)} : rows.spectrum; });
+  if(spec) out.spectrum=spec;
+  return out;
+}
+
+// minimal .xlsx reader: ZIP central directory + DecompressionStream, then the
+// sheet XML. No library, so the app stays one file that works offline.
+async function unzipEntries(buf){
+  const dv=new DataView(buf); let eocd=-1;
+  for(let i=buf.byteLength-22;i>=Math.max(0,buf.byteLength-65557);i--) if(dv.getUint32(i,true)===0x06054b50){ eocd=i; break; }
+  if(eocd<0) throw new Error('not a valid .xlsx (zip) file');
+  const n=dv.getUint16(eocd+10,true); let p=dv.getUint32(eocd+16,true); const ent={};
+  const td=new TextDecoder();
+  for(let k=0;k<n;k++){
+    if(dv.getUint32(p,true)!==0x02014b50) break;
+    const method=dv.getUint16(p+10,true), csize=dv.getUint32(p+20,true), nl=dv.getUint16(p+28,true), el=dv.getUint16(p+30,true), cl=dv.getUint16(p+32,true), lho=dv.getUint32(p+42,true);
+    ent[td.decode(new Uint8Array(buf,p+46,nl))]={method,csize,lho}; p+=46+nl+el+cl;
+  }
+  return async name=>{ const e=ent[name]; if(!e) return null;
+    const off=e.lho+30+dv.getUint16(e.lho+26,true)+dv.getUint16(e.lho+28,true);
+    const data=new Uint8Array(buf,off,e.csize);
+    if(e.method===0) return td.decode(data);
+    if(typeof DecompressionStream==='undefined') throw new Error('this browser cannot open .xlsx - save the sheet as CSV');
+    const out=await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();
+    return td.decode(out); };
+}
+const colIndex=ref=>{ let c=0; for(const ch of ref.replace(/\d+/g,'')) c=c*26+(ch.charCodeAt(0)-64); return c-1; };
+async function xlsxSheets(buf){
+  const read=await unzipEntries(buf), dp=new DOMParser();
+  const xml=t=>dp.parseFromString(t,'application/xml');
+  const wb=xml(await read('xl/workbook.xml')||'<x/>'), rels=xml(await read('xl/_rels/workbook.xml.rels')||'<x/>');
+  const target={}; for(const r of rels.getElementsByTagName('Relationship')) target[r.getAttribute('Id')]=r.getAttribute('Target');
+  const ssx=await read('xl/sharedStrings.xml'); const shared=[];
+  if(ssx) for(const si of xml(ssx).getElementsByTagName('si')) shared.push([...si.getElementsByTagName('t')].map(t=>t.textContent).join(''));
+  const sheets=[];
+  for(const sh of wb.getElementsByTagName('sheet')){
+    const rid=sh.getAttribute('r:id')||sh.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships','id');
+    let t=target[rid]; if(!t) continue; t=t.replace(/^\/?(xl\/)?/,'xl/');
+    sheets.push({name:sh.getAttribute('name'), load: async ()=>{
+      const doc=xml(await read(t)||'<x/>'); const rows=[];
+      for(const row of doc.getElementsByTagName('row')){
+        const out=[];
+        for(const c of row.getElementsByTagName('c')){
+          const i=colIndex(c.getAttribute('r')||'A'), ty=c.getAttribute('t'), v=c.getElementsByTagName('v')[0];
+          let val= ty==='s'? (v? shared[+v.textContent]||'' : '') : ty==='inlineStr'? [...c.getElementsByTagName('t')].map(x=>x.textContent).join('') : v? v.textContent : '';
+          out[i]=val;
+        }
+        rows[(+row.getAttribute('r')||rows.length+1)-1]=out;
+      }
+      return rows.map(r=>r? Array.from(r,x=>x==null?'':String(x)) : []); }});
+  }
+  return sheets;
+}
+const rowsToTsv=rows=>rows.map(r=>r.map(c=>String(c).replace(/[\t\r\n]+/g,' ')).join('\t')).join('\n');
+function csvToTsv(text){
+  const lines=text.split(/\r?\n/), sample=lines.slice(0,60).join('\n');
+  const d=(sample.match(/\t/g)||[]).length? '\t' : (sample.match(/;/g)||[]).length>(sample.match(/,/g)||[]).length? ';' : ',';
+  if(d==='\t') return text;
+  return lines.map(line=>{ const out=[]; let cur='', q=false;
+    for(let i=0;i<line.length;i++){ const ch=line[i];
+      if(q){ if(ch==='"'&&line[i+1]==='"'){ cur+='"'; i++; } else if(ch==='"') q=false; else cur+=ch; }
+      else if(ch==='"') q=true; else if(ch===d){ out.push(cur); cur=''; } else cur+=ch; }
+    out.push(cur); return out.join('\t'); }).join('\n');
+}
+const metaDate=text=>{ const d=text.match(/(?:^|\n)Date\t(\d{4}-\d{2}-\d{2})/), t=text.match(/(?:^|\n)Time\t(\d{1,2}:\d{2})/); return d? d[1]+(t?' '+t[1]:'') : ''; };
+async function readExport(file){
+  const f={name:file.name, date:'', kind:'', text:'', n:0, error:''};
+  try{
+    if(/\.xlsx$/i.test(file.name)){
+      const sheets=await xlsxSheets(await file.arrayBuffer());
+      // the spectrum ("Values": Wavelength (nm) + one column per sample) is
+      // preferred; otherwise the peak table ("Table": # / Name / λ 1 / Abs. 1)
+      let pick=null, kind='';
+      const order=[...sheets.filter(x=>/values/i.test(x.name)), ...sheets.filter(x=>/table/i.test(x.name)), ...sheets];
+      for(const sh of order){ const rows=await sh.load();
+        if(rows.some(r=>/^\s*wavelength/i.test(r[0]||''))){ pick=rows; kind='spectrum'; break; }
+        if(!pick && rows.some(r=>r.some(c=>/^name$/i.test(String(c).trim())) && r.some(c=>/^abs/i.test(String(c).trim())))){ pick=rows; kind='peak table'; } }
+      if(!pick) throw new Error('no sheet with a spectrum (Wavelength (nm)) or a peak table (Name, Abs.)');
+      f.text=rowsToTsv(pick); f.kind=kind;
+    } else {
+      f.text=csvToTsv(await file.text());
+      f.kind= f.text.split(/\r?\n/).some(l=>/^\s*wavelength/i.test(l))? 'spectrum' : 'peak table';
+    }
+    f.date=metaDate(f.text);
+    const rows=parseText(f.text); f.n=rows.filter(r=>r.status==='ok').length;
+    if(!rows.length) f.error='nothing readable in this file';
+  }catch(e){ f.error=String(e.message||e); }
+  return f;
+}
+async function addFiles(list){
+  const got=[]; for(const file of list) got.push(await readExport(file));
+  for(const f of got){ const i=FILES.findIndex(x=>x.name===f.name); if(i>=0) FILES[i]=f; else FILES.push(f); }
+  // oldest measurement first, so day 1 comes before day 2 in the tables
+  FILES.sort((a,b)=>(a.date||'~').localeCompare(b.date||'~') || a.name.localeCompare(b.name,undefined,{numeric:true}));
+  // the example only shows how it works - drop it once real data is loaded
+  if(got.some(f=>!f.error) && $('raw').value===EXAMPLE) $('raw').value='';
+  state.hidden.clear(); renderFiles(); render();
+}
+function renderFiles(){
+  $('files').innerHTML=FILES.map((f,i)=>`<li class="${f.error?'err':''}"><b>${esc(f.name)}</b><span class="m">${f.error? esc(f.error) : `${f.kind}${f.date? ' · '+esc(f.date) : ''} · ${f.n} sample${f.n===1?'':'s'}`}</span><button type="button" data-rm="${i}" title="Remove this file" aria-label="Remove ${esc(f.name)}">×</button></li>`).join('');
 }
 
 function parseText(text){
@@ -347,7 +479,14 @@ function fromSpectrum(sp, lo, hi, how){
   sp.wl.forEach((w,i)=>{ const v=sp.v[i]; if(w<lo||w>hi||!isFinite(v)) return;
     sum+=v; n++; if(!best||v>best.abs) best={lam:w, abs:v}; });
   if(!n) return null;
-  return how==='max'? best : {lam:(lo+hi)/2, abs:sum/n};
+  // detector limit: the spectrum is cut flat at its maximum (NanoDrop: A 40).
+  // Flat = the top value exactly on 3+ wavelengths, or 5+ values within 0.1 %
+  // of it (values jittering at the limit: 40, 39.99, 39.99 ...). A real peak
+  // top has at most 2-3 such values (tested on clipped and unclipped exports).
+  let exact=0, near=0; sp.wl.forEach((w,i)=>{ if(w<lo||w>hi) return; const v=sp.v[i]; if(v===best.abs) exact++; if(v>=best.abs*0.999) near++; });
+  const flat=Math.max(exact, near);
+  const sat = best.abs>=5 && (exact>=3 || near>=5);
+  return how==='max'? {...best, sat, flat} : {lam:(lo+hi)/2, abs:sum/n, sat, flat};
 }
 function pickPair(r, ch, wl2){
   if(r.spec){
@@ -355,7 +494,9 @@ function pickPair(r, ch, wl2){
                       : fromSpectrum(r.spec, state.wl2-state.win2, state.wl2+state.win2, state.how2);
   }
   const ps=r.pairs||[];
-  if(ch==='main'){ const p=ps[0]; return p&&isFinite(p[1])? {lam:p[0], abs:p[1]} : null; }
+  // peak table: several peaks reported at the very same top value = cut flat
+  const top=Math.max(...ps.map(p=>p[1]).filter(isFinite)), nTop=ps.filter(p=>p[1]===top).length;
+  if(ch==='main'){ const p=ps[0]; return p&&isFinite(p[1])? {lam:p[0], abs:p[1], sat: top>=30 && nTop>=2 && p[1]===top} : null; }
   let best=null;
   ps.forEach(p=>{ const d=Math.abs(p[0]-wl2); if(isFinite(p[1]) && d<=WL_TOL && (!best||d<best.d)) best={d, lam:p[0], abs:p[1]}; });
   return best;
@@ -365,7 +506,7 @@ function rowsFor(rows, ch, wl2){
     if(r.status!=='ok') return r;
     const v=pickPair(r, ch, wl2);
     if(!v) return {...r, status:'skip', note: ch==='main'? 'no absorbance value' : `no value near ${wl2} nm`};
-    return {...r, lam:v.lam, abs:v.abs};
+    return {...r, lam:v.lam, abs:v.abs, sat:!!v.sat};
   });
 }
 const hasSecond=(rows, wl2)=>rows.some(r=>r.status==='ok' && pickPair(r,'second',wl2));
@@ -563,7 +704,9 @@ let lastTables={results:'',data:'',compare:''};
 function load(){
   try{ const s=JSON.parse(localStorage.getItem(KEY)||'null');
     if(s){ $('raw').value=s.raw||''; for(const k of ['signal','model','mode','channel']) if(s[k]) state[k]=s[k]; state.showAll=!!s.showAll; state.labels=s.labels||{}; if(isFinite(+s.wl2)&&+s.wl2>0) state.wl2=+s.wl2; for(const k of SPEC_KEYS) if(s[k]!=null&&s[k]!=='') state[k]= typeof state[k]==='number'? +s[k] : s[k]; } }catch(e){}
-  if(!$('raw').value.trim()) $('raw').value=EXAMPLE;
+  try{ FILES=JSON.parse(localStorage.getItem(KEY+'.files')||'[]')||[]; }catch(e){ FILES=[]; }
+  if(!$('raw').value.trim() && !FILES.length) $('raw').value=EXAMPLE;
+  renderFiles();
   document.querySelector(`input[name=signal][value=${state.signal}]`).checked=true;
   document.querySelector(`input[name=model][value=${state.model}]`).checked=true;
   document.querySelector(`input[name=mode][value=${state.mode}]`).checked=true;
@@ -572,7 +715,7 @@ function load(){
   for(const k of SPEC_KEYS) $(k).value=state[k];
   $('showAll').checked=state.showAll;
 }
-function save(){ try{ localStorage.setItem(KEY, JSON.stringify({raw:$('raw').value, signal:state.signal, model:state.model, mode:state.mode, showAll:state.showAll, labels:state.labels, channel:state.channel, wl2:state.wl2, ...Object.fromEntries(SPEC_KEYS.map(k=>[k,state[k]]))})); }catch(e){} }
+function save(){ try{ localStorage.setItem(KEY+'.files', JSON.stringify(FILES)); }catch(e){} try{ localStorage.setItem(KEY, JSON.stringify({raw:$('raw').value, signal:state.signal, model:state.model, mode:state.mode, showAll:state.showAll, labels:state.labels, channel:state.channel, wl2:state.wl2, ...Object.fromEntries(SPEC_KEYS.map(k=>[k,state[k]]))})); }catch(e){} }
 
 const isPct=()=>state.signal!=='raw';
 let curCh='main';     // the wavelength channel actually shown
@@ -593,7 +736,7 @@ const fsd=v=>isPct()?fmtNum(v,1):fmtNum(v,3);
 
 function render(){
   save();
-  const all=parseText($('raw').value);
+  const all=allRows();
   const second=hasSecond(all, state.wl2);
   const nSecond=all.filter(r=>r.status==='ok' && pickPair(r,'second',state.wl2)).length, nOk=all.filter(r=>r.status==='ok').length;
   const sp=all.spectrum;
@@ -609,6 +752,13 @@ function render(){
   $('chanTag').textContent = second? `at ${ch==='main'? 'the main peak' : state.wl2+' nm'}` : '';
   renderCompare(all, second);
   const ds=buildDataset(rows,state.signal);
+  const sat=rows.filter(r=>r.status==='ok' && r.sat);
+  if(sat.length){
+    const byRole=sat.filter(r=>r.role==='all').length;
+    ds.warnings.unshift(`Detector limit reached in ${sat.length} sample${sat.length>1?'s':''} (absorbance cut flat at ${fmtNum(Math.max(...sat.map(r=>r.abs)),3)}): ${sat.map(r=>r.name.trim()).join(', ')}. `
+      + `Their true absorbance is higher, so ${byRole===sat.length? '“% dissolved” of these replicates comes out too high' : 'values from them are too low'}. `
+      + `Dilute these samples before measuring (and enter the dilution in the NanoDrop), or choose a wavelength range where they stay below the limit.`);
+  }
   renderLabels(ds);
   const hasData = ds.conds.some(c=>c.reps.some(r=>r.points.length));
   $('out').classList.toggle('is-empty',!hasData);
@@ -833,9 +983,10 @@ function renderParsed(rows, all){
   const second=hasSecond(all||rows, state.wl2);
   const role=r=> r.status!=='ok'? `<span class="skip">skipped, ${esc(r.note)}</span>` : r.role==='sup'? (r.typo?'sup (written “sub”)':'sup') : r.role==='all'?'all' : 'total (unlabelled)';
   const vals=r=>{ const a=pickPair(r,'main'), b=second? pickPair(r,'second',state.wl2) : null;
-    return `<td class="n">${a?a.abs:''}</td>`+(second?`<td class="n">${b?b.abs:''}</td>`:''); };
-  $('parsed').innerHTML=`<table><thead><tr><th>Name</th><th>Read as</th><th class="n">t (min)</th><th>Sample</th><th class="n">Abs main</th>${second?`<th class="n">Abs ${state.wl2} nm</th>`:''}</tr></thead><tbody>${
-    rows.map(r=>`<tr class="${r.status!=='ok'?'muted':''}"><td>${esc(r.name)}</td><td>${role(r)}</td><td class="n">${r.status==='ok'?fmtT(r.time):''}</td><td>${r.status==='ok'?esc(r.rep):''}</td>${vals(r)}</tr>`).join('')
+    return `<td class="n">${a? a.abs+(a.sat?' <span class="skip" title="detector limit: cut flat">(limit)</span>':'') : ''}</td>`+(second?`<td class="n">${b?b.abs:''}</td>`:''); };
+  const withSrc=rows.some(r=>r.src);
+  $('parsed').innerHTML=`<table><thead><tr>${withSrc?'<th>File</th>':''}<th>Name</th><th>Read as</th><th class="n">t (min)</th><th>Sample</th><th class="n">Abs main</th>${second?`<th class="n">Abs ${state.wl2} nm</th>`:''}</tr></thead><tbody>${
+    rows.map(r=>`<tr class="${r.status!=='ok'?'muted':''}">${withSrc?`<td class="m" title="${esc(r.src||'')}">${esc((r.src||'').replace(/\.(xlsx|csv|tsv|txt)$/i,'').slice(0,22))}</td>`:''}<td>${esc(r.name)}</td><td>${role(r)}</td><td class="n">${r.status==='ok'?fmtT(r.time):''}</td><td>${r.status==='ok'?esc(r.rep):''}</td>${vals(r)}</tr>`).join('')
   }</tbody></table>`;
 }
 
@@ -934,8 +1085,17 @@ function init(){
   document.querySelectorAll('input[name=mode]').forEach(el=>el.addEventListener('change',()=>{ state.mode=el.value; state.hidden.clear(); render(); }));
   $('labels').addEventListener('input',e=>{ const n=e.target.dataset.name; if(n==null) return; state.labels[n]=e.target.value; soon(); });
   $('showAll').addEventListener('change',e=>{ state.showAll=e.target.checked; render(); });
-  $('example').addEventListener('click',()=>{ $('raw').value=EXAMPLE; state.hidden.clear(); render(); });
-  $('clear').addEventListener('click',()=>{ $('raw').value=''; state.hidden.clear(); render(); $('raw').focus(); });
+  $('example').addEventListener('click',()=>{ FILES=[]; renderFiles(); $('raw').value=EXAMPLE; state.hidden.clear(); render(); });
+  $('clear').addEventListener('click',()=>{ FILES=[]; renderFiles(); $('raw').value=''; state.hidden.clear(); render(); $('raw').focus(); });
+  $('loadFiles').addEventListener('click',()=>$('fileIn').click());
+  $('fileIn').addEventListener('change',async e=>{ const l=[...e.target.files]; e.target.value=''; if(l.length) await addFiles(l); });
+  $('files').addEventListener('click',e=>{ const b=e.target.closest('[data-rm]'); if(!b) return; FILES.splice(+b.dataset.rm,1); state.hidden.clear(); renderFiles(); render(); });
+  const dz=$('drop');
+  ['dragenter','dragover'].forEach(t=>dz.addEventListener(t,e=>{ e.preventDefault(); dz.classList.add('over'); }));
+  ['dragleave','drop'].forEach(t=>dz.addEventListener(t,e=>{ e.preventDefault(); if(t==='dragleave'&&dz.contains(e.relatedTarget)) return; dz.classList.remove('over'); }));
+  dz.addEventListener('drop',async e=>{ const l=[...(e.dataTransfer&&e.dataTransfer.files||[])]; if(l.length) await addFiles(l); });
+  // a file dropped anywhere else on the page would open it in the browser instead
+  window.addEventListener('dragover',e=>e.preventDefault()); window.addEventListener('drop',e=>e.preventDefault());
   $('condBar').addEventListener('click',e=>{ const b=e.target.closest('button[data-cond]'); if(!b) return; state.cond=b.dataset.cond; render(); });
   $('legend').addEventListener('click',e=>{ const b=e.target.closest('button[data-key]'); if(!b) return; const k=b.dataset.key; state.hidden.has(k)?state.hidden.delete(k):state.hidden.add(k); render(); });
   $('copyRes').addEventListener('click',e=>copyText(lastTables.results,e.currentTarget));

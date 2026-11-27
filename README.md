@@ -18,7 +18,17 @@ right-click the `.bat` → *Send to → Desktop*.
 
 ## Use it
 
-1. Copy the NanoDrop table and paste it on the left. Both exports work:
+1. **Load the NanoDrop exports** with *Load files…* or drag them onto the box
+   on the left: `.xlsx` as saved by the NanoDrop (the *Values* sheet with the
+   spectra is used, otherwise the *Table* sheet with the peaks), or `.csv` /
+   `.tsv` / `.txt`. Several files at once: a measurement over two days in two
+   exports is read as **one data set** - same sample names, time points from
+   both days. Each file shows its measurement date and number of samples,
+   can be removed with ×, and stays loaded when the page is reopened.
+   Day 1 is listed before day 2 (date inside the file). Pasting a table into
+   the box below still works and is combined with the loaded files.
+
+   Or copy the NanoDrop table and paste it on the left. Both exports work:
    the **peak table** (one row per sample: name, λ, absorbance; *Load
    example*) and the **spectrum export** (`Wavelength (nm)` + one column per
    sample). From a spectrum, the main peak is the maximum between 200 and
