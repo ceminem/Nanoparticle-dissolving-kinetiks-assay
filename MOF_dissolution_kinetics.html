@@ -167,7 +167,9 @@ figure{margin:0}
 
       <fieldset>
         <legend>Signal to fit</legend>
-        <label class="opt"><input type="radio" name="signal" value="fracAll"><span>% dissolved, sup ÷ all</span><small>Each supernatant divided by the whole suspension of the same replicate at the same time. One “all” per replicate is enough: time points without their own use the mean of that replicate’s “all” samples.</small></label>
+        <label class="opt"><input type="radio" name="signal" value="delta"><span>Released since t0: sup(t) − sup(t0)</span><small>Engelke-style background correction: the supernatant at the first time point (cysteine, linker already free) is subtracted, so every curve starts at 0. In absorbance units. Recommended when no fully dissolved reference was measured.</small></label>
+        <label class="opt"><input type="radio" name="signal" value="endRef"><span>% of complete dissolution (Engelke)</span><small>(sup(t) − sup(t0)) ÷ (end − sup(t0)) × 100, with “end” = the fully dissolved sample (name it “… sample 1 end” or “… complete”). With a spectrum export the fraction comes from a linear decomposition of the whole spectrum in the main window, as in Ploetz, Engelke et al. 2020.</small></label>
+        <label class="opt"><input type="radio" name="signal" value="fracAll"><span>% dissolved, sup ÷ all</span><small>Each supernatant divided by the whole suspension of the same replicate at the same time. Only meaningful if the suspension absorbs like the dissolved material: particles also scatter light and absorb as a solid (check the spectra), and the supernatant at t0 is counted as dissolved. One “all” per replicate is enough: time points without their own use the mean of that replicate’s “all” samples.</small></label>
         <label class="opt"><input type="radio" name="signal" value="fracT0"><span>% dissolved, sup ÷ t0</span><small>Each supernatant divided by that replicate’s t0 sample.</small></label>
         <label class="opt"><input type="radio" name="signal" value="raw"><span>Raw absorbance of sup</span><small>No normalisation.</small></label>
       </fieldset>
@@ -281,8 +283,19 @@ function parseLine(raw, head){
   return {name, pairs, lam:first[0], abs:first[1]};
 }
 
+const ROLE_END=/(^|[\s_\-\]])(end|complete|completed|endpoint)(?=$|[\s_\-\[(])/i;
 function parseName(name){
   const tM = name.match(/(?:^|[\s_\-])t\s?(\d+)(?=$|[\s_\-\[(])/i);
+  // "sample 1 end" / "sample 1 complete": the fully dissolved reference
+  // (Engelke-style normalisation); it needs no time point
+  if(!tM && ROLE_END.test(name)){
+    let s2=(' '+name+' ').replace(new RegExp(ROLE_END.source,'ig'),' ').replace(/[\[(][^\])]*[\])]/g,' ');
+    let rep='Rep_1', rm=null;
+    for(const m of s2.matchAll(/(^|[\s_\-\]])([A-Za-z]+)[ _\-]?(\d+)(?=$|[\s_\-\[(])/g)) rm=m;
+    if(rm){ rep = rm[2].toLowerCase()+'_'+rm[3]; s2 = s2.slice(0, rm.index) + ' ' + s2.slice(rm.index + rm[0].length); }
+    const cond = s2.replace(/[\s_\-]+/g,' ').trim().split(' ').filter(w=>w && !/^\d+$/.test(w)).join(' ') || 'Sample';
+    return {cond, tIdx:-1, time:NaN, timeFromIndex:false, role:'end', typo:false, rep};
+  }
   if(!tM) return null;
   const tIdx = parseInt(tM[1],10);
   let time = NaN, timeFromIndex=false;
@@ -305,7 +318,8 @@ function parseName(name){
   // the LAST such pair in the name; "20 mM" (number first) is not one
   let rep='Rep_1', rm=null;
   for(const m of s2.matchAll(/(^|[\s_\-\]])([A-Za-z]+)[ _\-]?(\d+)(?=$|[\s_\-\[(])/g)) rm=m;
-  if(rm){ rep = rm[2]+'_'+rm[3]; s2 = s2.slice(0, rm.index) + ' ' + s2.slice(rm.index + rm[0].length); }
+  // lower case: "sample 1" (day 1) and "Sample-1" (day 2) are the same replicate
+  if(rm){ rep = rm[2].toLowerCase()+'_'+rm[3]; s2 = s2.slice(0, rm.index) + ' ' + s2.slice(rm.index + rm[0].length); }
   // the condition is whatever is left: "Bench", "20 mM", ... A number standing
   // alone (e.g. a stray " 1" after the time) is not a condition - it would
   // split one sample into two series - and is dropped.
@@ -513,6 +527,31 @@ const hasSecond=(rows, wl2)=>rows.some(r=>r.status==='ok' && pickPair(r,'second'
 
 // ---------- dataset ----------
 // Repeated rows with the same name are technical replicates: they are averaged.
+// Linear decomposition (Engelke et al.): the supernatant spectrum is the
+// start spectrum plus a fraction f of the change to complete dissolution,
+//   sup(t) − sup(t0) = f · (end − sup(t0)) + c      over the main window,
+// c absorbs a flat baseline shift. Least squares: f = cov(D,E) / var(E).
+// Needs spectra (spectrum export); returns null otherwise.
+function meanSpec(rs){
+  if(!rs||!rs.length||rs.some(r=>!r.spec)) return null;
+  const m=new Map();
+  for(const r of rs) r.spec.wl.forEach((w,i)=>{ const v=r.spec.v[i]; if(!isFinite(v)) return; const e=m.get(w)||[0,0]; e[0]+=v; e[1]++; m.set(w,e); });
+  const out=new Map(); for(const [w,[s,n]] of m) if(n===rs.length) out.set(w,s/n);
+  return out;
+}
+function spectralFraction(supRows, baseRows, endRows){
+  const S=meanSpec(supRows), B=meanSpec(baseRows), E=meanSpec(endRows);
+  if(!S||!B||!E) return null;
+  const lo=Math.min(state.mainLo,state.mainHi), hi=Math.max(state.mainLo,state.mainHi);
+  const D=[], F=[];
+  for(const [w,v] of S){ if(w<lo||w>hi||!B.has(w)||!E.has(w)) continue; D.push(v-B.get(w)); F.push(E.get(w)-B.get(w)); }
+  if(D.length<5) return null;
+  const md=D.reduce((a,b)=>a+b,0)/D.length, mf=F.reduce((a,b)=>a+b,0)/F.length;
+  let sdf=0, sff=0, sdd=0; for(let i=0;i<D.length;i++){ sdf+=(D[i]-md)*(F[i]-mf); sff+=(F[i]-mf)**2; sdd+=(D[i]-md)**2; }
+  if(sff<=0) return null;
+  const f=sdf/sff, r2= sdd>0? (sdf*sdf)/(sff*sdd) : NaN;
+  return {f, c:md-f*mf, r2, n:D.length};
+}
 function stats(a){ if(!a||!a.length) return null; const m=a.reduce((x,y)=>x+y,0)/a.length; const s=a.length>1? Math.sqrt(a.reduce((x,y)=>x+(y-m)**2,0)/(a.length-1)) : NaN; return {m,s,n:a.length}; }
 function buildDataset(rows, signal){
   const warnings=[];
@@ -520,8 +559,10 @@ function buildDataset(rows, signal){
   if(typos) warnings.push(`${typos} sample${typos>1?'s':''} labelled “sub” ${typos>1?'were':'was'} read as supernatant (“sup”).`);
   if(rows.some(r=>r.status==='ok'&&r.timeFromIndex)) warnings.push('Some names have no time in brackets, e.g. “[5min]”. The time-point index was used as minutes instead.');
   const cmap=new Map(); let maxTech=1;
+  const endMap=new Map();     // fully dissolved references, per condition|replicate
   for(const r of rows){
     if(r.status!=='ok') continue;
+    if(r.role==='end'){ const k=r.cond+'|'+r.rep; if(!endMap.has(k)) endMap.set(k,[]); endMap.get(k).push(r); continue; }
     if(!cmap.has(r.cond)) cmap.set(r.cond,new Map());
     const rm=cmap.get(r.cond);
     if(!rm.has(r.rep)) rm.set(r.rep,new Map());
@@ -530,6 +571,7 @@ function buildDataset(rows, signal){
     const slot=tm.get(r.time);
     const key = r.role==='sup'?'sup':(r.role==='all'?'all':'unl');
     (slot[key]=slot[key]||[]).push(r.abs);
+    (slot[key+'R']=slot[key+'R']||[]).push(r);
     maxTech=Math.max(maxTech,slot[key].length);
   }
   // t0 total of every condition / replicate, for "sup ÷ t0"
@@ -561,12 +603,39 @@ function buildDataset(rows, signal){
       const pooled=stats(pooledVals);
       const pooledTimes=times.filter(t=>totalOf(t)!=null);
       const points=[];
+      // Engelke-style: the supernatant at the first time point is the
+      // background (cysteine, linker already free) and is subtracted
+      const tBase=times.find(t=>tm.get(t).sup);
+      const base= tBase!=null? stats(tm.get(tBase).sup) : null;
+      let endRows=null, endSt=null;
+      if(signal==='endRef'){
+        endRows=endMap.get(cname+'|'+rname);
+        if(!endRows){ const same=[...endMap.entries()].filter(([k])=>k.startsWith(cname+'|')).flatMap(([,v])=>v);
+          if(same.length){ endRows=same; warnings.push(`${cname} ${rname}: no “end” reference of its own - the mean of the ${same.length} “end” sample${same.length>1?'s':''} of ${cname} was used.`); } }
+        if(!endRows){ warnings.push(`${cname} ${rname}: no fully dissolved reference (a sample named “… ${rname.replace('_',' ')} end” or “… complete”), so it was left out. Use “Released since t0” instead, or measure an end point.`); }
+        else endSt=stats(endRows.map(r=>r.abs));
+      }
       for(const t of times){
         const sup=stats(tm.get(t).sup);
         if(!sup) continue;
         let den=null, y, sdT;
         const rel=(st)=> st.n>1? st.s/st.m : 0;
         if(signal==='raw'){ y=sup.m; sdT=sup.s; }
+        else if(signal==='delta'){
+          y = t===tBase? 0 : sup.m-base.m;
+          sdT = t===tBase? NaN : ((sup.n>1||base.n>1)? Math.sqrt((sup.n>1?sup.s**2:0)+(base.n>1?base.s**2:0)) : NaN);
+          den=null;
+        }
+        else if(signal==='endRef'){
+          if(!endSt) break;
+          if(t===tBase){ y=0; sdT=NaN; }
+          else {
+            const lda = spectralFraction(tm.get(t).supR, tm.get(tBase).supR, endRows);
+            if(lda!=null){ y=100*lda.f; sdT=NaN; }
+            else { y=100*(sup.m-base.m)/(endSt.m-base.m); sdT=NaN; }
+          }
+          den=endSt;
+        }
         else {
           if(signal==='fracAll'){ den=totalOf(t);
             // the shared "all" is a fixed reference here: its spread over time
@@ -641,8 +710,12 @@ function fitFirstOrder(pts, model){
   const fin=solve((xa+xb)/2); if(fin.sse<best.sse) best=fin;
   const {k,a,b,sse}=best;
   const ybar=ys.reduce((s,v)=>s+v,0)/n; const sst=ys.reduce((s,v)=>s+(v-ybar)**2,0);
-  const R2 = sst>0? 1-sse/sst : NaN;
-  const dof=n-p; let seK=NaN, seYinf=NaN;
+  // with the curve forced through 0, a point at t = 0 is matched by
+  // construction and carries no information: it does not count for the
+  // degrees of freedom (3 points 0 / 72 / 1080 min = an exact fit, not a test)
+  const nInfo = withOffset? n : ts.filter(t=>t>0).length;
+  const dof=nInfo-p; let seK=NaN, seYinf=NaN;
+  const R2 = sst>0 && dof>0? 1-sse/sst : NaN;
   if(dof>0){
     const J=ts.map(t=>{ const e=Math.exp(-k*t); return withOffset? [1-e, 1, a*t*e] : [1-e, a*t*e]; });
     const JTJ=Array.from({length:p},(_,i)=>Array.from({length:p},(_,j)=>J.reduce((s,row)=>s+row[i]*row[j],0)));
@@ -652,7 +725,8 @@ function fitFirstOrder(pts, model){
       else { const v=inv[0][0]+inv[1][1]+2*inv[0][1]; seYinf=Math.sqrt(Math.max(0,s2*v)); } }
   }
   const edge = bj===N-1? 'fast' : (bj===0? 'slow' : null);
-  return {ok:true, model, k, y0:b, yinf:b+a, amp:a, sse, R2, seK, seYinf, thalf:LN2/k, v0:k*a, n, dof, edge,
+  return {ok:true, model, k, y0:b, yinf:b+a, amp:a, sse, R2, seK, seYinf, thalf:LN2/k, v0:k*a, n, dof, edge, tmax,
+          reached: 1-Math.exp(-k*tmax),
           f:t=> b + a*(1-Math.exp(-k*t))};
 }
 
@@ -693,7 +767,7 @@ const EXAMPLE=`#\tName\tλ 1\tAbs. 1
 27\tBench t4 [20min] all Nb_2\t210\t11.05
 28\tBench t4 [20min] all Nb_3\t210\t12.82`;
 
-const state={signal:'fracAll', model:'origin', showAll:false, cond:null, hidden:new Set(), mode:'reps', labels:{}, channel:'main', wl2:633,
+const state={signal:'delta', model:'origin', showAll:false, cond:null, hidden:new Set(), mode:'reps', labels:{}, channel:'main', wl2:633,
              mainLo:200, mainHi:250, mainHow:'max', win2:5, how2:'mean'};
 const SPEC_KEYS=['mainLo','mainHi','mainHow','win2','how2'];
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -717,12 +791,19 @@ function load(){
 }
 function save(){ try{ localStorage.setItem(KEY+'.files', JSON.stringify(FILES)); }catch(e){} try{ localStorage.setItem(KEY, JSON.stringify({raw:$('raw').value, signal:state.signal, model:state.model, mode:state.mode, showAll:state.showAll, labels:state.labels, channel:state.channel, wl2:state.wl2, ...Object.fromEntries(SPEC_KEYS.map(k=>[k,state[k]]))})); }catch(e){} }
 
-const isPct=()=>state.signal!=='raw';
+const isPct=()=>state.signal!=='raw' && state.signal!=='delta';
+const SIGNAL_NAME={fracAll:'sup ÷ all', fracT0:'sup ÷ t0', raw:'raw absorbance', delta:'released since t0 (ΔA)', endRef:'% of complete dissolution'};
 let curCh='main';     // the wavelength channel actually shown
 function yLabel(rows){
   const at= curCh==='second'? `, ${state.wl2} nm` : '';
   if(state.signal==='fracAll') return `Dissolved (%, sup ÷ all${at})`;
   if(state.signal==='fracT0') return `Dissolved (%, sup ÷ total at t0${at})`;
+  if(state.signal==='endRef') return `Dissolved (% of complete dissolution${at})`;
+  if(state.signal==='delta'){
+    if(rows.spectrum || rows.some(r=>r.spec))
+      return curCh==='second' ? `Released since t0, ΔA ${state.wl2-state.win2}–${state.wl2+state.win2} nm` : `Released since t0, ΔA (${state.mainHow==='max'?'max':'mean'} ${state.mainLo}–${state.mainHi} nm)`;
+    return `Released since t0, ΔA = sup(t) − sup(t0)${at}`;
+  }
   if(rows.spectrum || rows.some(r=>r.spec)){
     const ch2 = curCh==='second';
     return ch2 ? `Supernatant absorbance, ${state.how2==='max'?'maximum':'mean'} ${state.wl2-state.win2}–${state.wl2+state.win2} nm`
@@ -759,6 +840,16 @@ function render(){
       + `Their true absorbance is higher, so ${byRole===sat.length? '“% dissolved” of these replicates comes out too high' : 'values from them are too low'}. `
       + `Dilute these samples before measuring (and enter the dilution in the NanoDrop), or choose a wavelength range where they stay below the limit.`);
   }
+  // the "starts at zero" model on data that do not start at zero bends the
+  // fit into a straight line with an absurd plateau
+  if(state.model==='origin' && !['delta','endRef'].includes(state.signal)){
+    const off=[]; for(const c of ds.conds) for(const r of c.reps){
+      if(r.points.length<2) continue;
+      const first=r.points.reduce((a,b)=>a.t<=b.t?a:b), top=Math.max(...r.points.map(p=>Math.abs(p.y)));
+      if(first.t<=1 && top>0 && Math.abs(first.y)>0.2*top) off.push(r.name);
+    }
+    if(off.length) ds.warnings.unshift(`${off.length>3? off.length+' series' : off.join(', ')} already ${off.length>1?'start':'starts'} well above zero at t0, but the model “starts at zero” forces every curve through 0 - the fit is distorted. Choose “Released since t0” (subtracts the t0 supernatant) or the model with a free start value.`);
+  }
   renderLabels(ds);
   const hasData = ds.conds.some(c=>c.reps.some(r=>r.points.length));
   $('out').classList.toggle('is-empty',!hasData);
@@ -774,7 +865,7 @@ function fitsFor(all, ch){
     if(!r.points.length) return;
     if(state.mode==='samples'){
       const key='S|'+c.name+'|'+r.name; if(state.hidden.has(key)) return;
-      const label=(ds.conds.length>1? c.name+' ' : '')+((state.labels[r.name]||'').trim()||r.name);
+      const label=(ds.conds.length>1? c.name+' ' : '')+(labelOf(r.name).trim()||r.name);
       out.set(key,{label, fits:[fitFirstOrder(r.points,state.model)]});
     } else {
       if(state.hidden.has(c.name+'|'+r.name)) return;
@@ -816,7 +907,7 @@ function renderCompare(all, second){
     + (reps
     ? 'Mean ± SD over the replicates, each fitted on its own at each wavelength'
     : 'One fit per sample at each wavelength')
-    + ` (same signal "${state.signal==='fracAll'?'sup ÷ all':state.signal==='fracT0'?'sup ÷ t0':'raw absorbance'}" and model). `
+    + ` (same signal "${SIGNAL_NAME[state.signal]||state.signal}" and model). `
     + 'Similar k at both wavelengths means both absorbers are released together; a clearly different k means two processes.';
 }
 
@@ -842,17 +933,17 @@ function renderReps(ds, rows){
   if(!overlay){
     const a=view[0], n=a.reps.length;
     a.reps.forEach((r,i)=>{ if(r.hidden) return;
-      if(r.fit.ok) curves.push({f:r.fit.f, color:color(i), cls:'fit rep'});
+      if(r.fit.ok) curves.push({f:r.fit.f, color:color(i), cls:'fit rep', tEnd:r.fit.tmax});
       layers.push({color:color(i), shape:'dot', dx:(i-(n-1)/2)*5, pts:r.points.map(p=>({t:p.t,y:p.y,title:`${r.name}, ${fmtT(p.t)} min: ${fy(p.y)}`+(p.den!=null?` (A ${fmtNum(p.sup,3)} ÷ ${fmtNum(p.den,3)})`:'')+(p.nT>1?`, mean of ${p.nT} measurements`:'')}))});
       if(state.showAll&&state.signal==='raw') hollow.push({color:color(i), dx:(i-(n-1)/2)*5, pts:r.allPts.map(p=>({t:p.t,y:p.y,title:`${r.name}, all, ${fmtT(p.t)} min: ${fmtNum(p.y,3)}`}))});
     });
     if(a.vis.length>1){
-      if(a.mfit.ok) curves.push({f:a.mfit.f, color:'var(--ink)', cls:'fit mean'});
+      if(a.mfit.ok) curves.push({f:a.mfit.f, color:'var(--ink)', cls:'fit mean', tEnd:a.mfit.tmax});
       layers.push({color:'var(--ink)', shape:'square', dx:0, pts:a.mc.map(p=>({t:p.t,y:p.y,err:p.sd,title:`Mean, ${fmtT(p.t)} min: ${fy(p.y)} ± ${fsd(p.sd)} (n = ${p.n})`}))});
     }
   } else {
     view.forEach((a,i)=>{
-      if(a.mfit.ok) curves.push({f:a.mfit.f, color:color(i), cls:'fit mean'});
+      if(a.mfit.ok) curves.push({f:a.mfit.f, color:color(i), cls:'fit mean', tEnd:a.mfit.tmax});
       layers.push({color:color(i), shape:'square', dx:0, pts:a.mc.map(p=>({t:p.t,y:p.y,err:p.sd,title:`${a.name}, ${fmtT(p.t)} min: ${fy(p.y)} ± ${fsd(p.sd)} (n = ${p.n})`}))});
     });
   }
@@ -877,7 +968,7 @@ function renderReps(ds, rows){
     for(const r of a.reps){
       const f=r.fit, nm=r.name+(r.hidden?' (excluded)':'');
       if(!f.ok){ out.push({cls:r.hidden?'muted':'', cells:[nm, r.points.length, f.reason,'','','','','']}); continue; }
-      if(f.edge) notes.add(f.edge); if(f.dof<=1) notes.add('dof');
+      if(f.edge) notes.add(f.edge); if(f.dof<=1) notes.add('dof'); if(f.reached<0.75) notes.add('noplat');
       out.push({cls:r.hidden?'muted':'', cells:[nm, f.n, fmtNum(f.k,3), fmtNum(f.seK,3), fmtNum(f.thalf,2), fmtNum(f.yinf,dy), fmtNum(f.v0,dv), fmtNum(f.R2,3)]});
     }
     const ok=a.reps.filter(r=>!r.hidden&&r.fit.ok).map(r=>r.fit);
@@ -906,7 +997,7 @@ function renderSamples(ds, rows){
   const series=[], emptyS=[];
   ds.conds.forEach(c=>c.reps.forEach(r=>{
     if(!r.points.length){ emptyS.push((multi?c.name+' ':'')+r.name); return; }
-    const label=(state.labels[r.name]||'').trim()||r.name;
+    const label=labelOf(r.name).trim()||r.name;
     const key='S|'+c.name+'|'+r.name;
     series.push({key, id:(multi?c.name+' ':'')+r.name, name:(multi?c.name+' ':'')+label, points:r.points, hidden:state.hidden.has(key), fit:fitFirstOrder(r.points,state.model)});
   }));
@@ -917,7 +1008,7 @@ function renderSamples(ds, rows){
 
   const layers=[], curves=[];
   series.forEach((s,i)=>{ if(s.hidden) return;
-    if(s.fit.ok) curves.push({f:s.fit.f, color:color(i), cls:'fit mean'});
+    if(s.fit.ok) curves.push({f:s.fit.f, color:color(i), cls:'fit mean', tEnd:s.fit.tmax});
     layers.push({color:color(i), shape:'dot', dx:(i-(series.length-1)/2)*4, pts:s.points.map(p=>({t:p.t,y:p.y,err:p.sdT,title:`${s.name}, ${fmtT(p.t)} min: ${fy(p.y)}`+(isFinite(p.sdT)?` ± ${fsd(p.sdT)}`:'')+` (${p.nT} measurement${p.nT>1?'s':''})`}))});
   });
   drawPlot(layers, curves, [], rows);
@@ -928,7 +1019,7 @@ function renderSamples(ds, rows){
   const notes=new Set();
   const out=series.map(s=>{ const f=s.fit;
     if(!f.ok) return {cls:s.hidden?'muted':'', cells:[s.name,s.id,s.points.length,f.reason,'','','','','','']};
-    if(f.edge) notes.add(f.edge); if(f.dof<=1) notes.add('dof');
+    if(f.edge) notes.add(f.edge); if(f.dof<=1) notes.add('dof'); if(f.reached<0.75) notes.add('noplat');
     const seT=Math.LN2*f.seK/(f.k*f.k);
     return {cls:s.hidden?'muted':'', cells:[s.name+(s.hidden?' (hidden)':''), s.id, f.n, fmtNum(f.k,3), fmtNum(f.seK,3), fmtNum(f.thalf,2), fmtNum(seT,2), fmtNum(f.yinf,dy), fmtNum(f.v0,dv), fmtNum(f.R2,3)]}; });
   writeTable('results',[{caption:null, head, rows:out}]);
@@ -947,9 +1038,12 @@ function renderLabels(ds){
   const sig=names.join('|');
   if(box.dataset.sig===sig) return;
   box.dataset.sig=sig;
-  $('labels').innerHTML = names.length? names.map(n=>`<label class="lbl"><span>${esc(n)}</span><input type="text" data-name="${esc(n)}" value="${esc(state.labels[n]||'')}" placeholder="e.g. ${n===names[0]?'Benchmark':'10% NaAc'}"></label>`).join('') : '<p class="hint">No samples recognised yet.</p>';
+  $('labels').innerHTML = names.length? names.map(n=>`<label class="lbl"><span>${esc(n)}</span><input type="text" data-name="${esc(n)}" value="${esc(labelOf(n))}" placeholder="e.g. ${n===names[0]?'Benchmark':'10% NaAc'}"></label>`).join('') : '<p class="hint">No samples recognised yet.</p>';
 }
 
+// replicate names are compared in lower case; names typed for an older
+// spelling ("Nb_1", "Sample_1") still apply
+function labelOf(n){ if(state.labels[n]!=null) return state.labels[n]; const k=Object.keys(state.labels).find(x=>x.toLowerCase()===String(n).toLowerCase()&&state.labels[x]); return k? state.labels[k] : ''; }
 function legendBtn(key,label,col,on,shape){ return `<button type="button" class="lg" data-key="${esc(key)}" aria-pressed="${on}"><span class="sw ${shape}" style="background:${col}"></span>${esc(label)}</button>`; }
 function pm(m,s,d){ return isFinite(s)? `${fmtNum(m,d)} ± ${fmtNum(s,d)}` : fmtNum(m,d); }
 
@@ -964,8 +1058,9 @@ function writeNotes(notes, mode){
     : 'Model: y = y₀ + (y∞ − y₀)(1 − e^(−kt)) with a free start value. t½ = ln 2 / k; initial rate = k · (y∞ − y₀).');
   if(mode==='reps') n.push('SE comes from the fit itself; the spread between replicates (SD) is the better number to report.');
   else n.push('Each sample is fitted to the means of its technical replicates. SE comes from the fit residuals and the technical SD only shows measurement noise, so neither replaces independent syntheses.');
-  if(notes.has('dof')) n.push('Some fits have one or no degrees of freedom left, so their SE is unreliable or missing.');
+  if(notes.has('dof')) n.push('Some fits have one or no degrees of freedom left (a point at t = 0 does not count when the curve is forced through zero): with no degree of freedom the curve passes exactly through the points, so k and the plateau are only as good as each single point, and SE and R² cannot be given (–).');
   if(notes.has('fast')) n.push('At least one k hit the upper search limit: dissolution was essentially complete before the first sample, so treat that k as a lower bound.');
+  if(notes.has('noplat')) n.push('At least one curve is still far from its plateau at the last time point (less than 75 % of the way there): its plateau and k are extrapolations and not reliable - the drawn fit stops at the last measurement. Measure later time points or report only the measured values.');
   if(notes.has('slow')) n.push('At least one k hit the lower search limit: there is too little change in the window to estimate it.');
   $('resNote').textContent=n.join(' ');
 }
@@ -981,12 +1076,12 @@ function renderParsed(rows, all){
   const ok=rows.filter(r=>r.status==='ok').length;
   $('parsedCount').textContent=`${ok} of ${rows.length} rows used`;
   const second=hasSecond(all||rows, state.wl2);
-  const role=r=> r.status!=='ok'? `<span class="skip">skipped, ${esc(r.note)}</span>` : r.role==='sup'? (r.typo?'sup (written “sub”)':'sup') : r.role==='all'?'all' : 'total (unlabelled)';
+  const role=r=> r.status!=='ok'? `<span class="skip">skipped, ${esc(r.note)}</span>` : r.role==='sup'? (r.typo?'sup (written “sub”)':'sup') : r.role==='all'?'all' : r.role==='end'? 'end (fully dissolved reference)' : 'total (unlabelled)';
   const vals=r=>{ const a=pickPair(r,'main'), b=second? pickPair(r,'second',state.wl2) : null;
     return `<td class="n">${a? a.abs+(a.sat?' <span class="skip" title="detector limit: cut flat">(limit)</span>':'') : ''}</td>`+(second?`<td class="n">${b?b.abs:''}</td>`:''); };
   const withSrc=rows.some(r=>r.src);
   $('parsed').innerHTML=`<table><thead><tr>${withSrc?'<th>File</th>':''}<th>Name</th><th>Read as</th><th class="n">t (min)</th><th>Sample</th><th class="n">Abs main</th>${second?`<th class="n">Abs ${state.wl2} nm</th>`:''}</tr></thead><tbody>${
-    rows.map(r=>`<tr class="${r.status!=='ok'?'muted':''}">${withSrc?`<td class="m" title="${esc(r.src||'')}">${esc((r.src||'').replace(/\.(xlsx|csv|tsv|txt)$/i,'').slice(0,22))}</td>`:''}<td>${esc(r.name)}</td><td>${role(r)}</td><td class="n">${r.status==='ok'?fmtT(r.time):''}</td><td>${r.status==='ok'?esc(r.rep):''}</td>${vals(r)}</tr>`).join('')
+    rows.map(r=>`<tr class="${r.status!=='ok'?'muted':''}">${withSrc?`<td class="m" title="${esc(r.src||'')}">${esc((r.src||'').replace(/\.(xlsx|csv|tsv|txt)$/i,'').slice(0,22))}</td>`:''}<td>${esc(r.name)}</td><td>${role(r)}</td><td class="n">${r.status==='ok'&&isFinite(r.time)?fmtT(r.time):''}</td><td>${r.status==='ok'?esc(r.rep):''}</td>${vals(r)}</tr>`).join('')
   }</tbody></table>`;
 }
 
@@ -1005,7 +1100,9 @@ function drawPlot(layers, curves, hollow, rows){
   let tmax=0,ymin=0,ymax=0;
   const see=(t,y)=>{ if(isFinite(t)) tmax=Math.max(tmax,t); if(isFinite(y)){ ymax=Math.max(ymax,y); ymin=Math.min(ymin,y); } };
   for(const L of [...layers,...hollow]) for(const p of L.pts){ see(p.t,p.y); if(isFinite(p.err)) see(p.t,p.y+p.err); }
-  for(const c of curves) for(let i=0;i<=40;i++) see(NaN,c.f(tmax*i/40));
+  // a fitted curve is drawn (and scales the axis) only over its own data:
+  // an extrapolated plateau is a guess, not a result
+  for(const c of curves){ const te=Math.min(c.tEnd??tmax, tmax); for(let i=0;i<=40;i++) see(NaN,c.f(te*i/40)); }
   if(isPct()) ymax=Math.max(ymax,100);
   const xt=niceTicks(0,tmax||1,6), yt=niceTicks(ymin,ymax*1.03||1,6);
   const X=t=>m.l+(t-xt.min)/(xt.max-xt.min)*pw, Y=y=>m.t+ph-(y-yt.min)/(yt.max-yt.min)*ph;
@@ -1017,7 +1114,7 @@ function drawPlot(layers, curves, hollow, rows){
   if(isPct()) s+=`<line class="ref" x1="${m.l}" x2="${m.l+pw}" y1="${Y(100)}" y2="${Y(100)}"/>`;
   s+=`<text class="atitle" x="${m.l+pw/2}" y="${H-12}" text-anchor="middle">Time in cysteine (min)</text>`;
   s+=`<text class="atitle" transform="translate(16 ${m.t+ph/2}) rotate(-90)" text-anchor="middle">${esc(yLabel(rows))}</text>`;
-  s+=`<g clip-path="url(#pc)">`+curves.map(c=>{ let d=''; for(let i=0;i<=160;i++){ const t=xt.max*i/160; d+=(i?'L':'M')+X(t).toFixed(1)+','+Y(c.f(t)).toFixed(1); } return `<path class="${c.cls}" d="${d}" style="stroke:${c.color}"/>`; }).join('')+`</g>`;
+  s+=`<g clip-path="url(#pc)">`+curves.map(c=>{ let d=''; const te=Math.min(c.tEnd??xt.max, xt.max); for(let i=0;i<=160;i++){ const t=te*i/160; d+=(i?'L':'M')+X(t).toFixed(1)+','+Y(c.f(t)).toFixed(1); } return `<path class="${c.cls}" d="${d}" style="stroke:${c.color}"/>`; }).join('')+`</g>`;
   for(const L of hollow) for(const p of L.pts) s+=`<circle class="pt hollow" cx="${X(p.t)+L.dx}" cy="${Y(p.y)}" r="4" style="stroke:${L.color}"><title>${esc(p.title)}</title></circle>`;
   for(const L of layers) for(const p of L.pts){
     const x=X(p.t)+L.dx, y=Y(p.y);

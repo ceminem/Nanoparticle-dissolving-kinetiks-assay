@@ -44,6 +44,10 @@ right-click the `.bat` → *Send to → Desktop*.
    are read the same way.
    - The rest of the name is the condition, wherever it stands
      (`Bench t1 [5min] sup Nb_1` → Bench, `t1 [5min] sup 20 mM sample-1` → 20 mM).
+   - Case and separator do not matter: `sample 1` and `Sample-1` are the
+     same replicate (e.g. day 1 and day 2).
+   - A fully dissolved reference: `… sample 1 end` or `… complete` (no time
+     point), for *% of complete dissolution*.
    - One `all` per replicate is enough (at any time point): time points
      without their own use the mean of that replicate's `all` samples.
    Rows without a time point (blanks) are skipped; *Recognised samples* shows
@@ -54,8 +58,11 @@ right-click the `.bat` → *Send to → Desktop*.
    - whether Nb_1, Nb_2 … are **replicates** of one condition (mean ± SD of
      the fits) or **different samples** (each fitted on its own; repeat a name
      for technical replicates),
-   - the **signal**: % dissolved as sup ÷ all (default), sup ÷ t0, or raw
-     absorbance,
+   - the **signal**: *released since t0* (default: the supernatant at t0 is
+     subtracted, Engelke-style background correction), *% of complete
+     dissolution* (needs a fully dissolved sample named `… sample 1 end`;
+     with spectra a linear decomposition as in Ploetz, Engelke et al. 2020),
+     % dissolved as sup ÷ all, sup ÷ t0, or raw absorbance,
    - the **model**: first order through zero, or with a free start value,
    - the **wavelength**: main peak (λ 1) or a second wavelength (default
      633 nm). With both present, the table *Both wavelengths* shows k, t½ and

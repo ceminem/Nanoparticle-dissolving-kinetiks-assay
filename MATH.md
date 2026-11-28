@@ -79,6 +79,9 @@ the chosen wavelength.
 
 ### Several exports (e.g. day 1 and day 2)
 
+Replicate names are compared without regard to case and separator:
+`sample 1` (day 1) and `Sample-1` (day 2) are the same replicate.
+
 Every loaded file (and a pasted table) is read on its own and the samples are
 then pooled, as if they had been in one export. Samples are matched only by
 their names, so the same sample must have the same name on both days
@@ -102,7 +105,49 @@ NanoDrop) or use a range where they stay below the limit.
 
 For replicate *r* at time *t*, with A_sup, A_all the averaged absorbances:
 
-**a) % dissolved, sup ÷ all (default)**
+**Released since t0 (default) - background correction as in Engelke's work**
+
+  y(t) = A_sup(t) − A_sup(t₀)     (absorbance units; y(t₀) = 0)
+
+t₀ is the replicate's first time point with a supernatant. Whatever is in the
+supernatant already then - cysteine (or another medium component) when the
+blank was not the medium itself, linker or iron that was free before the
+reaction started, unpelleted fines - is background and is subtracted, so the
+curve shows only what dissolved *after* t₀ and the model "starts at zero" is
+correct by construction. Technical errors: s_y = √(s_sup(t)² + s_sup(t₀)²).
+
+**% of complete dissolution (Engelke)**
+
+  y(t) = 100 · (A_sup(t) − A_sup(t₀)) / (A_end − A_sup(t₀))
+
+A_end is the supernatant of the **fully dissolved** sample of the same
+replicate (name `… sample 1 end` or `… complete`, no time point needed; with
+only one end sample per condition it serves all its replicates, with a
+warning). This is the normalisation of Ploetz, Engelke et al. (Adv. Mater.
+2020, 32, 1907267, SI section 2.13 / Fig. S14): the supernatant spectrum is
+decomposed into the start spectrum (0 min) and the end spectrum (maximum free
+linker), and the weight of the end spectrum is the degraded fraction.
+
+With a **spectrum export** the app does exactly that decomposition, over the
+main-peak window (default 200–250 nm; widen it to use more of the spectrum):
+
+  A_sup(λ, t) − A_sup(λ, t₀) = f · (A_end(λ) − A_sup(λ, t₀)) + c,   y = 100 · f
+
+solved by linear least squares over all wavelengths in the window
+(f = cov(D, E) / var(E), D and E the two differences); c takes up a flat
+baseline shift between measurements, so drift of the NanoDrop zero does not
+enter f. With a peak table only the single value per sample is used.
+
+*Why not sup ÷ all?* The `all` sample is the suspension: its absorbance is
+that of the solid particles plus the light they scatter, which has a
+different spectrum from the dissolved material (for Fe-fumarate in cysteine:
+a broad extinction from 200 nm to beyond 800 nm, while what appears in the
+supernatant is one band at ~210 nm). The ratio then compares two different
+things, and the supernatant at t₀ is counted as "dissolved" too - in the
+Nov 2026 Fe-fumarate data that gave 24–35 % "dissolved" at 0 min. Use sup ÷
+all only when the suspension spectrum has the shape of the supernatant.
+
+**a) % dissolved, sup ÷ all**
 
   y(t) = 100 · A_sup(t) / A_all(t)
 
@@ -236,6 +281,16 @@ t½ = ln 2 / k:  SE(t½) = ln 2 · SE(k) / k²
 the curve explains.
 
 With n − p ≤ 1 degrees of freedom the SE is unreliable or missing (flagged).
+For the model through zero a point at t = 0 does not count in n: the model
+matches it by construction (y = 0 at t = 0), so it tests nothing. Three time
+points 0 / 72 / 1080 min with that model therefore leave **no** degree of
+freedom - the curve passes exactly through the points, R² and SE are shown as
+"–", and k and the plateau rest on single measurements.
+
+**Plateau not reached.** If the fitted curve has covered less than 75 % of its
+way to the plateau at the last time point (1 − e^(−k·t_last) < 0.75), y∞ and k
+are extrapolations; this is flagged. Fitted curves are drawn only up to each
+series' last measurement - never extrapolated across the axis.
 
 ## 8. Replicates: which number to report
 
