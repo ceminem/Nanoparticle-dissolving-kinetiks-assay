@@ -109,7 +109,9 @@ For replicate *r* at time *t*, with A_sup, A_all the averaged absorbances:
 
   y(t) = A_sup(t) − A_sup(t₀)     (absorbance units; y(t₀) = 0)
 
-t₀ is the replicate's first time point with a supernatant. Whatever is in the
+t₀ is the replicate's first time point with a supernatant. The model then
+counts time from t₀ (t → t − t₀), because the signal is 0 there by definition,
+not at 0 min; for first-order kinetics k is the same whichever t₀ is used. Whatever is in the
 supernatant already then - cysteine (or another medium component) when the
 blank was not the medium itself, linker or iron that was free before the
 reaction started, unpelleted fines - is background and is subtracted, so the
