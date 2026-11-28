@@ -46,8 +46,11 @@ right-click the `.bat` → *Send to → Desktop*.
      (`Bench t1 [5min] sup Nb_1` → Bench, `t1 [5min] sup 20 mM sample-1` → 20 mM).
    - Case and separator do not matter: `sample 1` and `Sample-1` are the
      same replicate (e.g. day 1 and day 2).
-   - A fully dissolved reference: `… sample 1 end` or `… complete` (no time
-     point), for *% of complete dissolution*.
+   - A fully dissolved reference: `end` or `complete` anywhere in the name,
+     with or without time point and sup/all (`t3 [20 min] all sample-2 end`,
+     `sample-4end`), for *% of complete dissolution*. It is not used as a
+     normal time point; several end samples of one replicate are averaged; a
+     replicate without one uses the mean of its condition's end samples.
    - One `all` per replicate is enough (at any time point): time points
      without their own use the mean of that replicate's `all` samples.
    Rows without a time point (blanks) are skipped; *Recognised samples* shows

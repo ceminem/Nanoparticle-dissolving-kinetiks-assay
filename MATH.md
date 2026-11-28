@@ -121,9 +121,11 @@ correct by construction. Technical errors: s_y = √(s_sup(t)² + s_sup(t₀)²)
   y(t) = 100 · (A_sup(t) − A_sup(t₀)) / (A_end − A_sup(t₀))
 
 A_end is the supernatant of the **fully dissolved** sample of the same
-replicate (name `… sample 1 end` or `… complete`, no time point needed; with
-only one end sample per condition it serves all its replicates, with a
-warning). This is the normalisation of Ploetz, Engelke et al. (Adv. Mater.
+replicate: `end` or `complete` anywhere in the name, with or without time
+point and sup/all (`t3 [20 min] all sample-2 end`, `sample-4end`); "end" wins
+over sup/all, and the sample is not used as a normal time point. Several end
+samples of a replicate are averaged; a replicate without one uses the mean of
+its condition's end samples, with a warning. This is the normalisation of Ploetz, Engelke et al. (Adv. Mater.
 2020, 32, 1907267, SI section 2.13 / Fig. S14): the supernatant spectrum is
 decomposed into the start spectrum (0 min) and the end spectrum (maximum free
 linker), and the weight of the end spectrum is the degraded fraction.

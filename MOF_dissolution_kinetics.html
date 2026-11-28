@@ -168,7 +168,7 @@ figure{margin:0}
       <fieldset>
         <legend>Signal to fit</legend>
         <label class="opt"><input type="radio" name="signal" value="delta"><span>Released since t0: sup(t) − sup(t0)</span><small>Engelke-style background correction: the supernatant at the first time point (cysteine, linker already free) is subtracted, so every curve starts at 0. In absorbance units. Recommended when no fully dissolved reference was measured.</small></label>
-        <label class="opt"><input type="radio" name="signal" value="endRef"><span>% of complete dissolution (Engelke)</span><small>(sup(t) − sup(t0)) ÷ (end − sup(t0)) × 100, with “end” = the fully dissolved sample (name it “… sample 1 end” or “… complete”). With a spectrum export the fraction comes from a linear decomposition of the whole spectrum in the main window, as in Ploetz, Engelke et al. 2020.</small></label>
+        <label class="opt"><input type="radio" name="signal" value="endRef"><span>% of complete dissolution (Engelke)</span><small>(sup(t) − sup(t0)) ÷ (end − sup(t0)) × 100, with “end” = the fully dissolved sample: “end” or “complete” anywhere in its name, with or without time point and sup / all (“t3 [20 min] all sample-2 end”, “sample-4end”). It is not used as a normal time point. With a spectrum export the fraction comes from a linear decomposition of the whole spectrum in the main window, as in Ploetz, Engelke et al. 2020.</small></label>
         <label class="opt"><input type="radio" name="signal" value="fracAll"><span>% dissolved, sup ÷ all</span><small>Each supernatant divided by the whole suspension of the same replicate at the same time. Only meaningful if the suspension absorbs like the dissolved material: particles also scatter light and absorb as a solid (check the spectra), and the supernatant at t0 is counted as dissolved. One “all” per replicate is enough: time points without their own use the mean of that replicate’s “all” samples.</small></label>
         <label class="opt"><input type="radio" name="signal" value="fracT0"><span>% dissolved, sup ÷ t0</span><small>Each supernatant divided by that replicate’s t0 sample.</small></label>
         <label class="opt"><input type="radio" name="signal" value="raw"><span>Raw absorbance of sup</span><small>No normalisation.</small></label>
@@ -283,18 +283,26 @@ function parseLine(raw, head){
   return {name, pairs, lam:first[0], abs:first[1]};
 }
 
-const ROLE_END=/(^|[\s_\-\]])(end|complete|completed|endpoint)(?=$|[\s_\-\[(])/i;
+// "end" (or "complete") anywhere in the name marks the fully dissolved
+// reference for the Engelke-style normalisation. It wins over sup / all and
+// may carry a time point: "t3 [20 min] all sample-2 end" is the end sample of
+// sample-2. It may also be glued to the replicate number ("sample-4end").
+const ROLE_END=/(^|[\s_\-\]\d])(end|complete|completed|endpoint)(?=$|[\s_\-\[(])/i;
 function parseName(name){
   const tM = name.match(/(?:^|[\s_\-])t\s?(\d+)(?=$|[\s_\-\[(])/i);
-  // "sample 1 end" / "sample 1 complete": the fully dissolved reference
-  // (Engelke-style normalisation); it needs no time point
-  if(!tM && ROLE_END.test(name)){
-    let s2=(' '+name+' ').replace(new RegExp(ROLE_END.source,'ig'),' ').replace(/[\[(][^\])]*[\])]/g,' ');
+  if(ROLE_END.test(name)){
+    let s2=' '+name+' ', time=NaN;
+    if(tM) s2=s2.replace(tM[0],' ');
+    const mmE = s2.match(/[\[(]\s*(\d+(?:[.,]\d+)?)\s*(min|m|h|s|sec)?\s*[\])]/i);
+    if(mmE){ time=num(mmE[1]); const u=(mmE[2]||'min').toLowerCase(); if(u==='h') time*=60; else if(u==='s'||u==='sec') time/=60; }
+    s2 = s2.replace(/[\[(][^\])]*[\])]/g,' ')
+           .replace(new RegExp(ROLE_END.source,'ig'), (m,pre)=> /\d/.test(pre)? pre+' ' : ' ')
+           .replace(/(^|[\s_\-\]])(sup|sub|supernatant|überstand|ueberstand|all|total|tot)(?=$|[\s_\-\[(])/ig,' ');
     let rep='Rep_1', rm=null;
     for(const m of s2.matchAll(/(^|[\s_\-\]])([A-Za-z]+)[ _\-]?(\d+)(?=$|[\s_\-\[(])/g)) rm=m;
     if(rm){ rep = rm[2].toLowerCase()+'_'+rm[3]; s2 = s2.slice(0, rm.index) + ' ' + s2.slice(rm.index + rm[0].length); }
     const cond = s2.replace(/[\s_\-]+/g,' ').trim().split(' ').filter(w=>w && !/^\d+$/.test(w)).join(' ') || 'Sample';
-    return {cond, tIdx:-1, time:NaN, timeFromIndex:false, role:'end', typo:false, rep};
+    return {cond, tIdx: tM? parseInt(tM[1],10) : -1, time, timeFromIndex:false, role:'end', typo:false, rep};
   }
   if(!tM) return null;
   const tIdx = parseInt(tM[1],10);
@@ -612,7 +620,7 @@ function buildDataset(rows, signal){
         endRows=endMap.get(cname+'|'+rname);
         if(!endRows){ const same=[...endMap.entries()].filter(([k])=>k.startsWith(cname+'|')).flatMap(([,v])=>v);
           if(same.length){ endRows=same; warnings.push(`${cname} ${rname}: no “end” reference of its own - the mean of the ${same.length} “end” sample${same.length>1?'s':''} of ${cname} was used.`); } }
-        if(!endRows){ warnings.push(`${cname} ${rname}: no fully dissolved reference (a sample named “… ${rname.replace('_',' ')} end” or “… complete”), so it was left out. Use “Released since t0” instead, or measure an end point.`); }
+        if(!endRows){ warnings.push(`${cname} ${rname}: no fully dissolved reference (put “end” in the name of its fully dissolved sample, e.g. “t3 [20 min] all ${rname.replace('_','-')} end”), so it was left out. Use “Released since t0” instead, or measure an end point.`); }
         else endSt=stats(endRows.map(r=>r.abs));
       }
       for(const t of times){
